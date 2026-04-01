@@ -1,7 +1,16 @@
-import 'dotenv/config'
+import { config } from 'dotenv'
 import express from 'express'
 import cors from 'cors'
-import router from './routes/index.js'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Load the backend-local env file regardless of the shell's current working directory.
+config({ path: path.join(__dirname, '.env') })
+
+const { default: router } = await import('./routes/index.js')
 
 const app = express()
 const PORT = process.env.PORT || 3001
