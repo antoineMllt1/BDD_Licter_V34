@@ -42,6 +42,7 @@ export const api = {
 
   // Make.com
   getMakeScenarios: () => req('GET', '/make/scenarios'),
+  getScenarioProgress: (id) => req('GET', `/make/scenarios/${id}/progress`),
   activateScenario: (id) => req('POST', `/make/scenarios/${id}/activate`),
   deactivateScenario: (id) => req('POST', `/make/scenarios/${id}/deactivate`),
   runScenario: (id) => req('POST', `/make/scenarios/${id}/run`),

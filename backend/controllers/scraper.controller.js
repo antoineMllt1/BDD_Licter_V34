@@ -56,6 +56,17 @@ function hashId(prefix, str) {
   return `${prefix}-${Math.abs(h)}`
 }
 
+function compactDateToken(value) {
+  return `${value || ''}`.toLowerCase().replace(/[^0-9a-z]/g, '').slice(0, 24)
+}
+
+function buildStoredReviewKey(row = {}) {
+  const textKey = normalizeText(row.text || '')
+  const dateKey = compactDateToken(row.review_date_original || row.date || '')
+  const storeKey = normalizeText(row.store_name || row.location || '')
+  return [textKey, dateKey, storeKey].filter(Boolean).join('|')
+}
+
 const boilerplatePatterns = [
   /vous pouvez aussi nous adresser votre r[ée]clamation compl[èe]te[^|.\n]*/gi,
   /toujours soucieux de la qualit[ée] de service[^|.\n]*/gi,
@@ -192,6 +203,76 @@ function deduplicateRows(rows) {
   })
 }
 
+async function fetchExistingTextKeys(table, { platform, brand }) {
+  const keys = new Set()
+  const pageSize = 1000
+
+  for (let from = 0; from < 5000; from += pageSize) {
+    let query = supabase
+      .from(table)
+      .select('text, date, review_date_original, store_name, location')
+      .eq('platform', platform)
+      .range(from, from + pageSize - 1)
+
+    if (brand) query = query.eq('brand', brand)
+
+    const { data, error } = await query
+    if (error) throw error
+    if (!data?.length) break
+
+    for (const row of data) {
+      const key = buildStoredReviewKey(row)
+      if (key) keys.add(key)
+    }
+
+    if (data.length < pageSize) break
+  }
+
+  return keys
+}
+
+async function fetchExistingReviewIds(table, reviewIds) {
+  const existing = new Set()
+  if (!reviewIds?.length) return existing
+
+  const chunkSize = 200
+  for (let index = 0; index < reviewIds.length; index += chunkSize) {
+    const chunk = reviewIds.slice(index, index + chunkSize)
+    const { data, error } = await supabase
+      .from(table)
+      .select('review_id')
+      .in('review_id', chunk)
+
+    if (error) throw error
+
+    for (const row of data || []) {
+      if (row?.review_id) existing.add(row.review_id)
+    }
+  }
+
+  return existing
+}
+
+async function upsertRowsAndCount(table, rows) {
+  if (!rows?.length) {
+    return { insertedCount: 0, skippedExistingIds: 0 }
+  }
+
+  const existingReviewIds = await fetchExistingReviewIds(table, rows.map((row) => row.review_id))
+  const rowsToInsert = rows.filter((row) => !existingReviewIds.has(row.review_id))
+
+  if (!rowsToInsert.length) {
+    return { insertedCount: 0, skippedExistingIds: existingReviewIds.size }
+  }
+
+  const { error } = await supabase
+    .from(table)
+    .upsert(rowsToInsert, { onConflict: 'review_id', ignoreDuplicates: true })
+
+  if (error) throw error
+  return { insertedCount: rowsToInsert.length, skippedExistingIds: existingReviewIds.size }
+}
+
 function extractRating(text) {
   const t = decodeHtml(text || '')
   // "X étoile(s)" or "X star(s)"
@@ -266,24 +347,34 @@ function resolveTable(targetDb, defaultTable) {
 export async function scrapeTrustpilot(req, res) {
   const { brand = 'fnac.com', maxReviews = 30, targetDb = 'scraping', massive = false } = req.body
   const table = resolveTable(targetDb, 'voix_client_cx')
+  const brandLabel = targetDb === 'competitor' ? brand : 'Fnac Darty'
   const runId = createScrapeRun({ source: 'Trustpilot', mode: massive ? 'massive' : 'standard', targetDb, query: brand })
   await logScraping('Trustpilot', 'running')
   try {
     const requestedMax = parseInt(maxReviews, 10) || 30
     const max = massive ? Math.max(requestedMax, 180) : requestedMax
+    const existingTextKeys = await fetchExistingTextKeys(table, { platform: 'Trustpilot', brand: brandLabel })
+    emitRunEvent(runId, 'Trustpilot', `${existingTextKeys.size} avis deja connus en base seront ignores`, { level: 'info' })
     emitRunEvent(runId, 'Trustpilot', `Ouverture du domaine ${brand} (${max} avis cibles)`)
-    const reviews = await scrapeTrustpilotDirect({
+    const { reviews, stats: scrapeStats } = await scrapeTrustpilotDirect({
       brand,
       maxReviews: max,
       massive,
+      excludeTextKeys: existingTextKeys,
       onProgress: ({ message, ...extra }) => emitRunEvent(runId, 'Trustpilot', message, extra)
     })
     emitRunEvent(runId, 'Trustpilot', `${reviews.length} avis utiles extraits avant insertion`, { level: 'success' })
 
     const rawRows = reviews.map(review => ({
-      review_id: hashId('tp', `${brand}-${review.text.slice(0, 100)}`),
+      review_id: hashId('tp', `${brand}-${buildStoredReviewKey({
+        text: review.text,
+        date: review.date,
+        review_date_original: review.reviewDateOriginal,
+        store_name: review.storeName,
+        location: review.location
+      })}`),
       platform: 'Trustpilot',
-      brand: targetDb === 'competitor' ? brand : 'Fnac Darty',
+      brand: brandLabel,
       category: null,
       text: review.text,
       date: review.date || new Date().toISOString(),
@@ -301,16 +392,36 @@ export async function scrapeTrustpilot(req, res) {
       share_count: 0,
       reply_count: 0
     }))
-    const rows = deduplicateRows(rawRows).slice(0, max)
+    const dedupedRows = deduplicateRows(rawRows)
+    const rows = dedupedRows.slice(0, max)
+    const skippedInController = Math.max(0, rawRows.length - dedupedRows.length)
 
-    const { error } = await supabase
-      .from(table)
-      .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
-    if (error) throw error
+    const { insertedCount, skippedExistingIds } = await upsertRowsAndCount(table, rows)
+    const duplicatesInDatabase = Math.max(scrapeStats?.skippedExisting || 0, skippedExistingIds || 0)
+    const summaryMessage = `Trustpilot termine: ${insertedCount} nouveaux avis, ${duplicatesInDatabase} ignores car deja en base, ${((scrapeStats?.skippedInRun || 0) + skippedInController)} ignores comme doublons du run${table ? ` -> ${table}` : ''}`
 
-    await logScraping('Trustpilot', 'completed', rows.length)
-    completeScrapeRun({ runId, source: 'Trustpilot', inserted: rows.length, table })
-    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} avis Trustpilot importés → ${table}` })
+    await logScraping('Trustpilot', 'completed', insertedCount)
+    completeScrapeRun({
+      runId,
+      source: 'Trustpilot',
+      inserted: insertedCount,
+      table,
+      message: summaryMessage,
+      stats: {
+        scanned: rawRows.length,
+        skippedExisting: duplicatesInDatabase,
+        skippedRunDuplicates: (scrapeStats?.skippedInRun || 0) + skippedInController
+      }
+    })
+    res.json({
+      success: true,
+      inserted: insertedCount,
+      scanned: rows.length,
+      duplicatesRemoved: (scrapeStats?.skippedInRun || 0) + skippedInController,
+      duplicatesInDatabase,
+      table,
+      message: `${insertedCount} nouveaux avis Trustpilot, ${duplicatesInDatabase} deja en base, ${((scrapeStats?.skippedInRun || 0) + skippedInController)} doublons retires -> ${table}`
+    })
   } catch (err) {
     await logScraping('Trustpilot', 'error', 0, err.message)
     completeScrapeRun({ runId, source: 'Trustpilot', error: err.message })
@@ -321,24 +432,34 @@ export async function scrapeTrustpilot(req, res) {
 export async function scrapeGoogleReviews(req, res) {
   const { query = 'Fnac Darty', maxReviews = 30, targetDb = 'scraping', massive = false } = req.body
   const table = resolveTable(targetDb, 'voix_client_cx')
+  const brandLabel = targetDb === 'competitor' ? query : 'Fnac Darty'
   const runId = createScrapeRun({ source: 'Google Reviews', mode: massive ? 'massive' : 'standard', targetDb, query })
   await logScraping('Google Reviews', 'running')
   try {
     const requestedMax = parseInt(maxReviews, 10) || 30
     const max = massive ? Math.max(requestedMax, 240) : requestedMax
+    const existingTextKeys = await fetchExistingTextKeys(table, { platform: 'Google Reviews', brand: brandLabel })
+    emitRunEvent(runId, 'Google Reviews', `${existingTextKeys.size} avis deja connus en base seront ignores`, { level: 'info' })
     emitRunEvent(runId, 'Google Reviews', `Recherche Google Maps nationale sur "${query}" (${max} avis cibles)`)
-    const reviews = await scrapeGoogleReviewsDirect({
+    const { reviews, stats: scrapeStats } = await scrapeGoogleReviewsDirect({
       query,
       maxReviews: max,
       massive,
+      excludeTextKeys: existingTextKeys,
       onProgress: ({ message, ...extra }) => emitRunEvent(runId, 'Google Reviews', message, extra)
     })
     emitRunEvent(runId, 'Google Reviews', `${reviews.length} avis utiles extraits avant insertion`, { level: 'success' })
 
     const rawRows = reviews.map(review => ({
-      review_id: hashId('gr', `${query}-${review.text.slice(0, 100)}`),
+      review_id: hashId('gr', `${query}-${buildStoredReviewKey({
+        text: review.text,
+        date: review.date,
+        review_date_original: review.reviewDateOriginal,
+        store_name: review.storeName,
+        location: review.location
+      })}`),
       platform: 'Google Reviews',
-      brand: targetDb === 'competitor' ? query : 'Fnac Darty',
+      brand: brandLabel,
       category: null,
       text: review.text,
       date: review.date || new Date().toISOString(),
@@ -356,16 +477,37 @@ export async function scrapeGoogleReviews(req, res) {
       share_count: 0,
       reply_count: 0
     }))
-    const rows = deduplicateRows(rawRows).slice(0, max)
+    const dedupedRows = deduplicateRows(rawRows)
+    const rows = dedupedRows.slice(0, max)
+    const skippedInController = Math.max(0, rawRows.length - dedupedRows.length)
 
-    const { error } = await supabase
-      .from(table)
-      .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
-    if (error) throw error
+    const { insertedCount, skippedExistingIds } = await upsertRowsAndCount(table, rows)
+    const duplicatesInDatabase = Math.max(scrapeStats?.skippedExisting || 0, skippedExistingIds || 0)
+    const summaryMessage = `Google Reviews termine: ${insertedCount} nouveaux avis, ${duplicatesInDatabase} ignores car deja en base, ${((scrapeStats?.skippedInRun || 0) + skippedInController)} ignores comme doublons du run${table ? ` -> ${table}` : ''}`
 
-    await logScraping('Google Reviews', 'completed', rows.length)
-    completeScrapeRun({ runId, source: 'Google Reviews', inserted: rows.length, table })
-    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} avis Google importés → ${table}` })
+    await logScraping('Google Reviews', 'completed', insertedCount)
+    completeScrapeRun({
+      runId,
+      source: 'Google Reviews',
+      inserted: insertedCount,
+      table,
+      message: summaryMessage,
+      stats: {
+        scanned: rawRows.length,
+        storesVisited: scrapeStats?.storesVisited || 0,
+        skippedExisting: duplicatesInDatabase,
+        skippedRunDuplicates: (scrapeStats?.skippedInRun || 0) + skippedInController
+      }
+    })
+    res.json({
+      success: true,
+      inserted: insertedCount,
+      scanned: rows.length,
+      duplicatesRemoved: (scrapeStats?.skippedInRun || 0) + skippedInController,
+      duplicatesInDatabase,
+      table,
+      message: `${insertedCount} nouveaux avis Google, ${duplicatesInDatabase} deja en base, ${((scrapeStats?.skippedInRun || 0) + skippedInController)} doublons retires -> ${table}`
+    })
   } catch (err) {
     await logScraping('Google Reviews', 'error', 0, err.message)
     completeScrapeRun({ runId, source: 'Google Reviews', error: err.message })
@@ -406,14 +548,17 @@ export async function scrapeReddit(req, res) {
     const rows = deduplicateRows(rawRows).filter(row => row.text?.length > 20).filter(row => isUsefulScrapedText(row.text))
     emitRunEvent(runId, 'Reddit', `${rows.length} posts propres retenus apres nettoyage`, { level: 'success' })
 
-    const { error } = await supabase
-      .from(table)
-      .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
-    if (error) throw error
+    const { insertedCount } = await upsertRowsAndCount(table, rows)
 
-    await logScraping('Reddit', 'completed', rows.length)
-    completeScrapeRun({ runId, source: 'Reddit', inserted: rows.length, table })
-    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} posts Reddit importés → ${table}` })
+    await logScraping('Reddit', 'completed', insertedCount)
+    completeScrapeRun({ runId, source: 'Reddit', inserted: insertedCount, table })
+    res.json({
+      success: true,
+      inserted: insertedCount,
+      scanned: rows.length,
+      table,
+      message: `${insertedCount} nouveaux posts Reddit importes sur ${rows.length} trouves -> ${table}`
+    })
   } catch (err) {
     await logScraping('Reddit', 'error', 0, err.message)
     completeScrapeRun({ runId, source: 'Reddit', error: err.message })

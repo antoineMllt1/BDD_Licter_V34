@@ -129,6 +129,17 @@ function normalizeReviewDate(value, fallbackDate) {
   return date.toISOString()
 }
 
+function compactReviewToken(value) {
+  return `${value || ''}`.toLowerCase().replace(/[^0-9a-z]/g, '').slice(0, 24)
+}
+
+function buildReviewSemanticKey(review = {}) {
+  const textKey = `${review.text || ''}`.toLowerCase().replace(/\s+/g, ' ').trim()
+  const dateKey = compactReviewToken(review.reviewDateOriginal || review.date || '')
+  const storeKey = `${review.storeName || review.location || ''}`.toLowerCase().replace(/\s+/g, ' ').trim()
+  return [textKey, dateKey, storeKey].filter(Boolean).join('|')
+}
+
 function normalizeReview(item, fallbackDate = null) {
   const text = cleanScrapedText(item?.text || '')
   if (!isUsefulScrapedText(text)) return null
@@ -276,35 +287,65 @@ async function extractTrustpilotPage(page, url) {
   })
 }
 
-export async function scrapeTrustpilotDirect({ brand, maxReviews = 30, massive = false, onProgress = null }) {
+export async function scrapeTrustpilotDirect({ brand, maxReviews = 30, massive = false, onProgress = null, excludeTextKeys = null }) {
   const perPage = 20
-  const maxPages = Math.max(1, Math.ceil(maxReviews / perPage) + (massive ? 3 : 1))
+  const exclusionPadding = excludeTextKeys?.size ? (massive ? 12 : 6) : 0
+  const maxPages = Math.max(1, Math.ceil(maxReviews / perPage) + (massive ? 3 : 1) + exclusionPadding)
+  const hardMaxPages = excludeTextKeys?.size ? maxPages + (massive ? 35 : 25) : maxPages
   const fallbackDate = new Date().toISOString()
   const collected = []
   const seen = new Set()
+  const stats = {
+    extracted: 0,
+    kept: 0,
+    skippedExisting: 0,
+    skippedInRun: 0,
+    skippedInvalid: 0
+  }
   const page = await createBrowserPage()
 
   try {
-    for (let pageIndex = 1; pageIndex <= maxPages && collected.length < maxReviews; pageIndex += 1) {
+    let pagesWithoutNew = 0
+
+    for (let pageIndex = 1; pageIndex <= hardMaxPages && collected.length < maxReviews; pageIndex += 1) {
       const url = pageIndex === 1
         ? `https://fr.trustpilot.com/review/${brand}`
         : `https://fr.trustpilot.com/review/${brand}?page=${pageIndex}`
 
+      const collectedBeforePage = collected.length
       reportProgress(onProgress, {
-        message: `Trustpilot page ${pageIndex}/${maxPages} en cours`,
+        message: `Trustpilot page ${pageIndex}/${hardMaxPages} en cours`,
         pageIndex,
         url
       })
       const reviews = await extractTrustpilotPage(page, url)
       if (!reviews.length) break
+      stats.extracted += reviews.length
 
       for (const review of reviews) {
         const normalized = normalizeReview(review, fallbackDate)
-        if (!normalized) continue
-        const key = normalized.text.toLowerCase().slice(0, 160)
-        if (seen.has(key)) continue
+        if (!normalized) {
+          stats.skippedInvalid += 1
+          continue
+        }
+        const externalKey = buildReviewSemanticKey(normalized)
+        if (excludeTextKeys?.has(externalKey)) {
+          stats.skippedExisting += 1
+          reportProgress(onProgress, {
+            message: 'Avis Trustpilot deja present en base, poursuite des pages',
+            level: 'info',
+            preview: normalized.text.slice(0, 140)
+          })
+          continue
+        }
+        const key = buildReviewSemanticKey(normalized)
+        if (seen.has(key)) {
+          stats.skippedInRun += 1
+          continue
+        }
         seen.add(key)
         collected.push(normalized)
+        stats.kept += 1
         reportProgress(onProgress, {
           message: `Avis Trustpilot retenu (${collected.length}/${maxReviews})`,
           level: 'success',
@@ -313,9 +354,24 @@ export async function scrapeTrustpilotDirect({ brand, maxReviews = 30, massive =
         })
         if (collected.length >= maxReviews) break
       }
+
+      if (collected.length === collectedBeforePage) {
+        pagesWithoutNew += 1
+        if (excludeTextKeys?.size && pageIndex < hardMaxPages && pagesWithoutNew < 4) {
+          reportProgress(onProgress, {
+            message: 'Trustpilot: aucun nouvel avis sur cette page, on cherche plus loin',
+            level: 'info',
+            pageIndex
+          })
+        }
+      } else {
+        pagesWithoutNew = 0
+      }
+
+      if (pagesWithoutNew >= (excludeTextKeys?.size ? 6 : 2)) break
     }
 
-    return collected
+    return { reviews: collected, stats }
   } finally {
     await closeBrowserPage(page)
   }
@@ -365,9 +421,10 @@ async function openGoogleSearch(page, term) {
   await wait(1500)
 }
 
-async function openFirstRelevantPlace(page, query) {
+async function listRelevantPlaceLabels(page, query) {
   const tokens = `${query || ''}`.toLowerCase().split(/\s+/).filter(token => token.length > 2)
   const handles = await page.$$('[role="article"], a[href*="/place/"]')
+  const labels = []
 
   for (const handle of handles) {
     const label = await page.evaluate(element => (
@@ -377,6 +434,30 @@ async function openFirstRelevantPlace(page, query) {
     const normalized = label.toLowerCase()
     if (!normalized) continue
     if (tokens.length && !tokens.some(token => normalized.includes(token))) continue
+    labels.push(label)
+  }
+
+  return labels
+}
+
+async function openRelevantPlaceAtIndex(page, query, targetIndex = 0) {
+  const tokens = `${query || ''}`.toLowerCase().split(/\s+/).filter(token => token.length > 2)
+  const handles = await page.$$('[role="article"], a[href*="/place/"]')
+  let matchIndex = 0
+
+  for (const handle of handles) {
+    const label = await page.evaluate(element => (
+      `${element.innerText || element.getAttribute('aria-label') || ''}`.trim()
+    ), handle).catch(() => '')
+
+    const normalized = label.toLowerCase()
+    if (!normalized) continue
+    if (tokens.length && !tokens.some(token => normalized.includes(token))) continue
+
+    if (matchIndex !== targetIndex) {
+      matchIndex += 1
+      continue
+    }
 
     await handle.click().catch(() => {})
     await wait(3000)
@@ -490,15 +571,24 @@ async function extractGoogleReviews(page) {
   })
 }
 
-export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massive = false, onProgress = null }) {
+export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massive = false, onProgress = null, excludeTextKeys = null }) {
   const page = await createBrowserPage()
   const fallbackDate = new Date().toISOString()
+  const stats = {
+    extracted: 0,
+    kept: 0,
+    skippedExisting: 0,
+    skippedInRun: 0,
+    skippedInvalid: 0,
+    storesVisited: 0
+  }
 
   try {
     const seen = new Set()
     const collected = []
     const seenStores = new Set()
-    const searchTerms = buildGoogleSearchTerms(query, massive)
+    const searchTerms = buildGoogleSearchTerms(query, massive || Boolean(excludeTextKeys?.size))
+    const maxPlaceCandidatesPerTerm = excludeTextKeys?.size ? (massive ? 4 : 3) : 1
 
     for (let index = 0; index < searchTerms.length && collected.length < maxReviews; index += 1) {
       const term = searchTerms[index]
@@ -520,94 +610,159 @@ export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massiv
         throw error
       }
 
-      const opened = await openFirstRelevantPlace(page, query)
-      if (!opened) {
+      const candidateLabels = await listRelevantPlaceLabels(page, query)
+      if (!candidateLabels.length) {
         await ensureGooglePlaceOpen(page)
       }
 
-      const details = await extractGooglePlaceDetails(page)
-      if (!details.placeName) {
-        reportProgress(onProgress, {
-          message: `Aucun magasin exploitable trouve pour ${term}`,
-          level: 'error',
-          searchTerm: term,
-          city: seededCity
-        })
-        continue
-      }
-      if (seenStores.has(details.placeName.toLowerCase())) {
-        reportProgress(onProgress, {
-          message: `${details.placeName}: magasin deja traite, passage au suivant`,
-          level: 'info',
-          storeName: details.placeName,
-          storeCity: seededCity
-        })
-        continue
-      }
-      seenStores.add(details.placeName.toLowerCase())
-      const resolvedStoreCity = inferGoogleStoreCity(details.placeName, details.address) || details.storeCity || seededCity
-      reportProgress(onProgress, {
-        message: `Magasin trouve: ${details.placeName}${resolvedStoreCity ? ` (${resolvedStoreCity})` : ''}`,
-        level: 'success',
-        storeName: details.placeName,
-        storeCity: resolvedStoreCity
-      })
+      for (let candidateIndex = 0; candidateIndex < maxPlaceCandidatesPerTerm && collected.length < maxReviews; candidateIndex += 1) {
+        if (candidateIndex > 0) {
+          await openGoogleSearch(page, term)
+        }
 
-      const remaining = maxReviews - collected.length
-      const remainingSearches = searchTerms.length - index
-      const targetForStore = Math.max(massive ? 4 : 2, Math.min(massive ? 14 : 6, Math.ceil(remaining / Math.max(1, remainingSearches))))
+        const opened = await openRelevantPlaceAtIndex(page, query, candidateIndex)
+        if (!opened) {
+          if (candidateIndex === 0) {
+            await ensureGooglePlaceOpen(page)
+          }
+          break
+        }
 
-      await scrollGoogleReviews(page, targetForStore)
-      const rawReviews = await extractGoogleReviews(page)
-      if (!rawReviews.length) {
+        const details = await extractGooglePlaceDetails(page)
+        if (!details.placeName) {
+          reportProgress(onProgress, {
+            message: `Aucun magasin exploitable trouve pour ${term}`,
+            level: 'error',
+            searchTerm: term,
+            city: seededCity
+          })
+          break
+        }
+        const resolvedStoreCity = inferGoogleStoreCity(details.placeName, details.address) || details.storeCity || seededCity
+        const storeIdentity = [details.placeName, resolvedStoreCity || details.address || term]
+          .filter(Boolean)
+          .join('|')
+          .toLowerCase()
+        if (seenStores.has(storeIdentity)) {
+          reportProgress(onProgress, {
+            message: `${details.placeName}: magasin deja traite, passage au suivant`,
+            level: 'info',
+            storeName: details.placeName,
+            storeCity: resolvedStoreCity || seededCity
+          })
+          continue
+        }
+        seenStores.add(storeIdentity)
+        stats.storesVisited += 1
         reportProgress(onProgress, {
-          message: `${details.placeName}: aucun avis detecte dans le panneau Google Maps`,
-          level: 'error',
-          storeName: details.placeName,
-          storeCity: resolvedStoreCity
-        })
-        continue
-      }
-      let retainedForStore = 0
-
-      for (const review of rawReviews) {
-        const normalized = normalizeReview({
-          ...review,
-          location: details.location,
-          storeName: details.placeName,
-          storeAddress: details.address,
-          storeCity: resolvedStoreCity,
-          sourceUrl: details.sourceUrl
-        }, fallbackDate)
-        if (!normalized) continue
-
-        const key = `${details.placeName}-${normalized.text.toLowerCase().slice(0, 160)}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        collected.push(normalized)
-        retainedForStore += 1
-        reportProgress(onProgress, {
-          message: `${details.placeName}: avis retenu (${collected.length}/${maxReviews})`,
+          message: `Magasin trouve: ${details.placeName}${resolvedStoreCity ? ` (${resolvedStoreCity})` : ''}`,
           level: 'success',
-          count: collected.length,
-          storeName: details.placeName,
-          preview: normalized.text.slice(0, 140)
-        })
-        if (collected.length >= maxReviews) break
-        if (retainedForStore >= targetForStore) break
-      }
-
-      if (retainedForStore === 0) {
-        reportProgress(onProgress, {
-          message: `${details.placeName}: avis trouves mais aucun texte utile apres nettoyage`,
-          level: 'error',
           storeName: details.placeName,
           storeCity: resolvedStoreCity
         })
+
+        const remaining = maxReviews - collected.length
+        const remainingSearches = Math.max(1, searchTerms.length - index)
+        const targetForStore = Math.max(massive ? 4 : 2, Math.min(massive ? 14 : 6, Math.ceil(remaining / remainingSearches)))
+        let retainedForStore = 0
+        const storeSeenCandidates = new Set()
+        const maxRounds = excludeTextKeys?.size ? (massive ? 7 : 6) : 1
+        const initialLoadTarget = excludeTextKeys?.size
+          ? Math.min(massive ? 48 : 24, Math.max(targetForStore * 5, targetForStore + 12))
+          : targetForStore
+        const hardReviewLoadTarget = excludeTextKeys?.size ? (massive ? 140 : 70) : targetForStore
+
+        for (let round = 0; round < maxRounds && retainedForStore < targetForStore && collected.length < maxReviews; round += 1) {
+          const reviewLoadTarget = excludeTextKeys?.size
+            ? Math.min(hardReviewLoadTarget, initialLoadTarget + round * (massive ? 14 : 8))
+            : targetForStore
+
+          await scrollGoogleReviews(page, reviewLoadTarget)
+          const rawReviews = await extractGoogleReviews(page)
+          if (!rawReviews.length) {
+            reportProgress(onProgress, {
+              message: `${details.placeName}: aucun avis detecte dans le panneau Google Maps`,
+              level: 'error',
+              storeName: details.placeName,
+              storeCity: resolvedStoreCity
+            })
+            break
+          }
+          stats.extracted += rawReviews.length
+          const retainedBeforeRound = retainedForStore
+
+          for (const review of rawReviews) {
+            const normalized = normalizeReview({
+              ...review,
+              location: details.location,
+              storeName: details.placeName,
+              storeAddress: details.address,
+              storeCity: resolvedStoreCity,
+              sourceUrl: details.sourceUrl
+            }, fallbackDate)
+            if (!normalized) {
+              stats.skippedInvalid += 1
+              continue
+            }
+
+            const candidateKey = buildReviewSemanticKey(normalized)
+            if (storeSeenCandidates.has(candidateKey)) continue
+            storeSeenCandidates.add(candidateKey)
+
+            const externalKey = candidateKey
+            if (excludeTextKeys?.has(externalKey)) {
+              stats.skippedExisting += 1
+              reportProgress(onProgress, {
+                message: `${details.placeName}: avis deja present en base, on cherche plus loin`,
+                level: 'info',
+                storeName: details.placeName,
+                preview: normalized.text.slice(0, 140)
+              })
+              continue
+            }
+
+            const key = `${details.placeName}-${candidateKey}`
+            if (seen.has(key)) {
+              stats.skippedInRun += 1
+              continue
+            }
+            seen.add(key)
+            collected.push(normalized)
+            stats.kept += 1
+            retainedForStore += 1
+            reportProgress(onProgress, {
+              message: `${details.placeName}: avis retenu (${collected.length}/${maxReviews})`,
+              level: 'success',
+              count: collected.length,
+              storeName: details.placeName,
+              preview: normalized.text.slice(0, 140)
+            })
+            if (collected.length >= maxReviews) break
+            if (retainedForStore >= targetForStore) break
+          }
+
+          if (retainedForStore === retainedBeforeRound && round < maxRounds - 1 && excludeTextKeys?.size) {
+            reportProgress(onProgress, {
+              message: `${details.placeName}: pas assez de nouveaux avis pour l'instant, on charge plus loin`,
+              level: 'info',
+              storeName: details.placeName,
+              storeCity: resolvedStoreCity
+            })
+          }
+        }
+
+        if (retainedForStore === 0) {
+          reportProgress(onProgress, {
+            message: `${details.placeName}: avis trouves mais aucun texte utile apres nettoyage`,
+            level: 'error',
+            storeName: details.placeName,
+            storeCity: resolvedStoreCity
+          })
+        }
       }
     }
 
-    return collected
+    return { reviews: collected, stats }
   } finally {
     await closeBrowserPage(page)
   }

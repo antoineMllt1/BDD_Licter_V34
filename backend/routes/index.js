@@ -16,7 +16,8 @@ import {
   getScenarios,
   activateScenario,
   deactivateScenario,
-  runScenario
+  runScenario,
+  getScenarioProgress
 } from '../controllers/make.controller.js'
 import { generateComexPdf } from '../controllers/comex.controller.js'
 
@@ -35,6 +36,7 @@ router.post('/scrape/schedule/run', triggerScrapeSchedule)
 
 // Make.com
 router.get('/make/scenarios', getScenarios)
+router.get('/make/scenarios/:id/progress', getScenarioProgress)
 router.post('/make/scenarios/:id/activate', activateScenario)
 router.post('/make/scenarios/:id/deactivate', deactivateScenario)
 router.post('/make/scenarios/:id/run', runScenario)

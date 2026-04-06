@@ -1,7 +1,12 @@
 import axios from 'axios'
+import { createClient } from '@supabase/supabase-js'
 
 const MAKE_TOKEN = process.env.MAKE_API_TOKEN
 const MAKE_BASE = 'https://eu1.make.com/api/v2'
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY
+)
 
 // Webhook URL for scenario 5086449 — no token required
 const WEBHOOKS = {
@@ -18,6 +23,31 @@ const STATIC_SCENARIOS = [
   { id: 5085608, name: 'BDD2026 - Scraping Apify to Supabase (Fnac Darty)', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-01T07:49:32.002Z', usedPackages: ['http'] },
   { id: 5086449, name: 'BDD2026 - Webhook Sentiment Pipeline (Fnac Darty)', isActive: false, executions: 28, errors: 0, lastEdit: '2026-04-01T08:17:28.913Z', usedPackages: ['gateway', 'supabase', 'openai-gpt-3'] },
 ]
+
+const PROGRESS_CONFIG = {
+  5131635: { table: 'scraping_brand', label: 'sentiment + categorie', pending: ['sentiment', 'category'] },
+  5131643: { table: 'scraping_competitor', label: 'sentiment + categorie', pending: ['sentiment', 'category'] },
+  5085615: { table: 'benchmark_marche', label: 'sentiment', pending: ['sentiment_detected'] },
+  5094479: { table: 'voix_client_cx', label: 'sentiment', pending: ['sentiment'] },
+  5094482: { table: 'reputation_crise', label: 'sentiment', pending: ['sentiment'] },
+  5086449: { table: 'scraping_brand', label: 'sentiment + categorie', pending: ['sentiment', 'category'] }
+}
+
+function buildPendingExpression(fields = []) {
+  return fields.map((field) => `${field}.is.null`).join(',')
+}
+
+async function fetchPendingCount(config) {
+  const { count, error } = await supabase
+    .from(config.table)
+    .select('*', { count: 'exact', head: true })
+    .not('text', 'is', null)
+    .neq('text', '')
+    .or(buildPendingExpression(config.pending))
+
+  if (error) throw error
+  return count || 0
+}
 
 export async function getScenarios(req, res) {
   if (!MAKE_TOKEN) return res.json(STATIC_SCENARIOS)
@@ -80,6 +110,28 @@ export async function runScenario(req, res) {
       headers: { Authorization: `Token ${MAKE_TOKEN}`, 'Content-Type': 'application/json' }
     })
     res.json({ success: true, data: response.data, method: 'api' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export async function getScenarioProgress(req, res) {
+  const id = parseInt(req.params.id, 10)
+  const config = PROGRESS_CONFIG[id]
+
+  if (!config) {
+    return res.json({ supported: false })
+  }
+
+  try {
+    const pending = await fetchPendingCount(config)
+    res.json({
+      supported: true,
+      scenarioId: id,
+      table: config.table,
+      targetLabel: config.label,
+      pending
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

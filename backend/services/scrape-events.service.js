@@ -45,7 +45,7 @@ export function createScrapeRun({ source, mode = 'standard', targetDb = 'scrapin
   return runId
 }
 
-export function completeScrapeRun({ runId, source, inserted = 0, table = null, error = null }) {
+export function completeScrapeRun({ runId, source, inserted = 0, table = null, error = null, message = null, stats = null }) {
   emitScrapeEvent({
     type: error ? 'run_failed' : 'run_completed',
     runId,
@@ -54,9 +54,10 @@ export function completeScrapeRun({ runId, source, inserted = 0, table = null, e
     inserted,
     table,
     error,
+    stats,
     message: error
       ? `${source} a echoue: ${error}`
-      : `${source} termine: ${inserted} lignes ajoutees${table ? ` -> ${table}` : ''}`
+      : (message || `${source} termine: ${inserted} lignes ajoutees${table ? ` -> ${table}` : ''}`)
   })
 }
 

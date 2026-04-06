@@ -566,6 +566,119 @@ body {
 .automation-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
 .automation-meta span { display: flex; align-items: center; gap: 4px; }
 .automation-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.automation-icon-chip {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.4px;
+}
+
+.automation-progress {
+  margin: 8px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(108, 92, 231, 0.05) 0%, rgba(108, 92, 231, 0.02) 100%);
+}
+
+.automation-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.automation-progress-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.automation-progress-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.automation-progress-bar {
+  width: 100%;
+  height: 10px;
+  background: rgba(108, 92, 231, 0.10);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.automation-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.45s ease;
+  box-shadow: 0 0 16px rgba(108, 92, 231, 0.18);
+}
+
+.automation-progress-fill.running {
+  animation: automationProgressPulse 1.6s ease-in-out infinite;
+}
+
+.automation-progress-fill.error {
+  background: var(--negative) !important;
+  box-shadow: none;
+}
+
+.automation-progress-message {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.automation-progress-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.automation-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+.automation-stage-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+
+.automation-stage.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.automation-stage.active .automation-stage-dot {
+  background: var(--primary);
+  box-shadow: 0 0 0 5px rgba(108, 92, 231, 0.12);
+}
+
+.automation-stage.done {
+  color: var(--positive);
+}
+
+.automation-stage.done .automation-stage-dot {
+  background: var(--positive);
+}
 
 /* ======== TOGGLE ======== */
 .toggle-wrap { display: flex; align-items: center; gap: 8px; }
@@ -593,6 +706,11 @@ body {
 }
 .toggle.on::after { transform: translateX(17px); }
 .toggle-label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+
+@keyframes automationProgressPulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
 
 /* ======== SECTION HEADERS ======== */
 .page-header { margin-bottom: 24px; }
