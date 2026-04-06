@@ -18,16 +18,18 @@ function TextModal({ text, onClose }) {
 }
 
 const TABLES = [
-  { value: 'voix_client_cx', label: 'Expérience Client', color: 'var(--neutral)', sources: ['Trustpilot', 'Google Reviews'] },
-  { value: 'reputation_crise', label: 'Réputation & Crise', color: 'var(--negative)', sources: ['Twitter/X', 'Make.com'] },
-  { value: 'benchmark_marche', label: 'Benchmark Marché', color: 'var(--blue)', sources: ['Twitter/X', 'Make.com'] },
+  { value: 'scraping_brand', label: 'Scraping Marque', color: '#6C5CE7', sources: ['Trustpilot', 'Google Reviews', 'Twitter/X'], group: 'scraping' },
+  { value: 'scraping_competitor', label: 'Scraping Concurrents', color: '#E17055', sources: ['Trustpilot', 'Google Reviews', 'Twitter/X'], group: 'scraping' },
+  { value: 'voix_client_cx', label: 'CSV - Exp. Client', color: 'var(--neutral)', sources: ['Trustpilot', 'Google Reviews'], group: 'csv' },
+  { value: 'reputation_crise', label: 'CSV - Réputation', color: 'var(--negative)', sources: ['Twitter/X', 'Make.com'], group: 'csv' },
+  { value: 'benchmark_marche', label: 'CSV - Benchmark', color: 'var(--blue)', sources: ['Twitter/X', 'Make.com'], group: 'csv' },
 ]
 
 const PAGE_SIZE = 20
 
 export default function ScrapingResults() {
   const [searchParams] = useSearchParams()
-  const [activeTable, setActiveTable] = useState(searchParams.get('table') || 'voix_client_cx')
+  const [activeTable, setActiveTable] = useState(searchParams.get('table') || 'scraping_brand')
   const [rows, setRows] = useState([])
   const [counts, setCounts] = useState({})
   const [loading, setLoading] = useState(true)
@@ -97,6 +99,8 @@ export default function ScrapingResults() {
   }
 
   const COLS = {
+    scraping_brand: ['platform', 'brand', 'category', 'text', 'date', 'rating', 'sentiment', 'location'],
+    scraping_competitor: ['platform', 'brand', 'category', 'text', 'date', 'rating', 'sentiment', 'location'],
     voix_client_cx: ['platform', 'brand', 'category', 'text', 'date', 'rating', 'sentiment', 'location'],
     reputation_crise: ['platform', 'brand', 'post_type', 'text', 'date', 'sentiment', 'likes', 'user_followers'],
     benchmark_marche: ['platform', 'entity_analyzed', 'topic', 'text', 'date', 'sentiment_detected', 'target_brand_vs_competitor'],
@@ -144,13 +148,29 @@ export default function ScrapingResults() {
       {/* Table selector */}
       <div className="card">
         <div className="card-header">
-          <div style={{ display: 'flex', gap: 8 }}>
-            {TABLES.map(t => (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Scraping databases */}
+            {TABLES.filter(t => t.group === 'scraping').map(t => (
               <button
                 key={t.value}
                 onClick={() => setActiveTable(t.value)}
                 className={`btn btn-sm ${activeTable === t.value ? 'btn-primary' : 'btn-ghost'}`}
                 style={{ borderLeft: activeTable === t.value ? `3px solid ${t.color}` : undefined }}
+              >
+                {t.label}
+                <span style={{ marginLeft: 6, background: 'rgba(108,92,231,0.1)', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 600 }}>
+                  {(counts[t.value] || 0).toLocaleString('fr-FR')}
+                </span>
+              </button>
+            ))}
+            <span style={{ color: 'var(--border)', fontSize: 16, margin: '0 2px' }}>|</span>
+            {/* CSV databases */}
+            {TABLES.filter(t => t.group === 'csv').map(t => (
+              <button
+                key={t.value}
+                onClick={() => setActiveTable(t.value)}
+                className={`btn btn-sm ${activeTable === t.value ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderLeft: activeTable === t.value ? `3px solid ${t.color}` : undefined, opacity: 0.85 }}
               >
                 {t.label}
                 <span style={{ marginLeft: 6, background: 'rgba(108,92,231,0.1)', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 600 }}>

@@ -3,6 +3,8 @@ import Papa from 'papaparse'
 import { supabase } from '../lib/supabase.js'
 
 const TABLES = [
+  { value: 'scraping_brand', label: 'Scraping Marque', color: '#6C5CE7' },
+  { value: 'scraping_competitor', label: 'Scraping Concurrents', color: '#E17055' },
   { value: 'reputation_crise', label: 'Réputation & Crise', color: 'var(--negative)' },
   { value: 'benchmark_marche', label: 'Benchmark Marché', color: 'var(--blue)' },
   { value: 'voix_client_cx', label: 'Expérience Client', color: 'var(--neutral)' },

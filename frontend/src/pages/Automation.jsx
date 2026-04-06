@@ -3,6 +3,20 @@ import { api } from '../lib/api.js'
 import { StatusBadge } from '../components/StatusBadge.jsx'
 
 const SCENARIO_META = {
+  5131635: {
+    label: 'Enrichir — Scraping Marque',
+    desc: 'Enrichit les données scrapées récentes (dernière heure) dans scraping_brand. GPT-4o-mini analyse chaque texte et attribue sentiment + catégorie (SAV, prix, garantie, conseil vendeur, délais de livraison). Lancez après un scraping.',
+    modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
+    icon: '🧠',
+    color: '#6C5CE7',
+  },
+  5131643: {
+    label: 'Enrichir — Scraping Concurrents',
+    desc: 'Enrichit les données scrapées récentes (dernière heure) dans scraping_competitor. GPT-4o-mini analyse chaque texte et attribue sentiment + catégorie (SAV, prix, garantie, conseil vendeur, délais de livraison). Lancez après un scraping.',
+    modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
+    icon: '🧠',
+    color: '#E17055',
+  },
   5085615: {
     label: 'Sentiment — Benchmark Marché',
     desc: 'Lit les enregistrements sans sentiment dans benchmark_marche, appelle OpenAI GPT-4o-mini et met à jour sentiment_detected.',
@@ -166,6 +180,8 @@ export default function Automation() {
       setError(err.message)
       // Show mock data if backend not running
       setScenarios([
+        { id: 5131635, name: 'BDD2026 - Analyse IA Sentiment scraping_brand', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-04T12:00:00.000Z', usedPackages: ['supabase', 'openai-gpt-3'] },
+        { id: 5131643, name: 'BDD2026 - Analyse IA Sentiment scraping_competitor', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-04T12:00:00.000Z', usedPackages: ['supabase', 'openai-gpt-3'] },
         { id: 5085615, name: 'BDD2026 - Analyse IA Sentiment benchmark_marche', isActive: false, executions: 37, errors: 10, lastEdit: '2026-04-01T09:18:32.469Z', usedPackages: ['supabase', 'openai-gpt-3'] },
         { id: 5094479, name: 'BDD2026 - Analyse IA Sentiment voix_client_cx', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-01T15:12:47.000Z', usedPackages: ['supabase', 'openai-gpt-3'] },
         { id: 5094482, name: 'BDD2026 - Analyse IA Sentiment reputation_crise', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-01T15:12:58.000Z', usedPackages: ['supabase', 'openai-gpt-3'] },

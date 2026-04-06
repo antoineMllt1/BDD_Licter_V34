@@ -12,17 +12,23 @@ export default function Overview() {
   const [rep, setRep] = useState([])
   const [bench, setBench] = useState([])
   const [cx, setCx] = useState([])
+  const [scrapingBrand, setScrapingBrand] = useState([])
+  const [scrapingComp, setScrapingComp] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     Promise.all([
       supabase.from('reputation_crise').select('*').limit(5000),
       supabase.from('benchmark_marche').select('*').limit(5000),
-      supabase.from('voix_client_cx').select('*').limit(5000)
-    ]).then(([r, b, c]) => {
+      supabase.from('voix_client_cx').select('*').limit(5000),
+      supabase.from('scraping_brand').select('*').limit(5000),
+      supabase.from('scraping_competitor').select('*').limit(5000),
+    ]).then(([r, b, c, sb, sc]) => {
       setRep(buildUnifiedReputationDataset(r.data || [], b.data || [], c.data || []))
       setBench(b.data || [])
       setCx(c.data || [])
+      setScrapingBrand(sb.data || [])
+      setScrapingComp(sc.data || [])
       setLoading(false)
     })
   }, [])
@@ -83,10 +89,34 @@ export default function Overview() {
       </div>
 
       <div className="kpi-grid">
-        <KPICard label="Mentions Totales" value={kpis.totalMentions.toLocaleString('fr-FR')} sub="agreges sur 3 bases Supabase" icon="◈" color="primary" />
+        <KPICard label="Mentions Totales" value={kpis.totalMentions.toLocaleString('fr-FR')} sub="agreges sur 3 bases CSV" icon="◈" color="primary" />
         <KPICard label="Score de Crise" value={`${kpis.crisisScore}%`} sub={`${kpis.negCount} mentions negatives consolidees`} icon="⚠" color={crisisColor} />
         <KPICard label="Share of Voice" value={`${kpis.sov}%`} sub="Fnac Darty vs Boulanger" icon="◎" color="blue" />
         <KPICard label="Note CX Moyenne" value={kpis.avgRating} sub={`sur 5 - ${cx.length} avis`} icon="★" color="neutral" />
+      </div>
+
+      {/* Scraping databases summary */}
+      <div style={{ display: 'flex', gap: 14, marginBottom: 20 }}>
+        <div style={{ flex: 1, background: '#6C5CE710', border: '2px solid #6C5CE730', borderRadius: 'var(--radius)', padding: '14px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#6C5CE7' }}>Base Scraping Marque</div>
+            <span style={{ fontSize: 22, fontWeight: 800, color: '#6C5CE7' }}>{scrapingBrand.length.toLocaleString('fr-FR')}</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {scrapingBrand.filter(r => r.sentiment === 'Negative').length} neg. / {scrapingBrand.filter(r => r.sentiment === 'Positive').length} pos.
+            {scrapingBrand.length > 0 && ` — ${[...new Set(scrapingBrand.map(r => r.platform).filter(Boolean))].join(', ')}`}
+          </div>
+        </div>
+        <div style={{ flex: 1, background: '#E1705510', border: '2px solid #E1705530', borderRadius: 'var(--radius)', padding: '14px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#E17055' }}>Base Scraping Concurrents</div>
+            <span style={{ fontSize: 22, fontWeight: 800, color: '#E17055' }}>{scrapingComp.length.toLocaleString('fr-FR')}</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {scrapingComp.filter(r => r.sentiment === 'Negative').length} neg. / {scrapingComp.filter(r => r.sentiment === 'Positive').length} pos.
+            {scrapingComp.length > 0 && ` — ${[...new Set(scrapingComp.map(r => r.brand).filter(Boolean))].join(', ')}`}
+          </div>
+        </div>
       </div>
 
       <div className="grid-2-1" style={{ marginBottom: 20 }}>

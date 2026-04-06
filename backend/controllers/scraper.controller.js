@@ -23,9 +23,16 @@ async function linkupSearch(query, depth = 'deep') {
   return res.data.results || []
 }
 
+// Normalize text for dedup: lowercase, collapse whitespace, trim
+function normalizeText(str) {
+  return (str || '').toLowerCase().replace(/\s+/g, ' ').replace(/[^\w\sàâäéèêëïîôùûüÿçœæ]/g, '').trim()
+}
+
 function hashId(prefix, str) {
+  // Hash on normalized text for better dedup
+  const norm = normalizeText(str)
   let h = 0
-  for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0 }
+  for (let i = 0; i < norm.length; i++) { h = ((h << 5) - h) + norm.charCodeAt(i); h |= 0 }
   return `${prefix}-${Math.abs(h)}`
 }
 
@@ -33,6 +40,13 @@ function decodeHtml(str) {
   return (str || '').replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d)))
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+}
+
+function cleanText(str) {
+  return decodeHtml(str || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function inferSentiment(raw) {
@@ -52,11 +66,57 @@ function inferSentiment(raw) {
   return 'Neutral'
 }
 
-// Filter out meta/noise content
+// Filter out meta/noise content — aggressive filtering
 function isReviewContent(text) {
-  const t = (text || '').toLowerCase()
-  const noise = ['comment laisser un avis', 'how to leave a review', 'sign in to leave', 'connectez-vous pour', 'terms of service', 'privacy policy', 'cookie', 'javascript', 'accessibility permissions', 'parental control', 'we designed this app', 'data protection', 'do you agree with', 'voice your opinion today', 'trustscore', 'search tables', 'hear what']
-  return text && text.length > 40 && !noise.some(n => t.includes(n))
+  if (!text || text.length < 60) return false
+  const t = text.toLowerCase()
+
+  // Website UI / navigation noise
+  const noise = [
+    'comment laisser un avis', 'how to leave a review', 'sign in to leave',
+    'connectez-vous pour', 'terms of service', 'privacy policy', 'cookie',
+    'javascript', 'accessibility permissions', 'parental control',
+    'we designed this app', 'data protection', 'do you agree with',
+    'voice your opinion today', 'trustscore', 'search tables', 'hear what',
+    'conditions générales', 'mentions légales', 'politique de confidentialité',
+    'créer un compte', 'mot de passe', 'panier', 'ajouter au panier',
+    'en stock', 'rupture de stock', 'livraison gratuite', 'voir plus',
+    'afficher plus', 'trier par', 'filtrer', 'résultats pour', 'page suivante',
+    'copyright', 'tous droits réservés', 'nous contacter', 'à propos',
+    'télécharger', 'installer', 'mettre à jour', 'navigateur',
+    'accepter les cookies', 'paramètres des cookies', 'en savoir plus',
+    'inscrivez-vous', 'newsletter', 'suivez-nous', 'réseaux sociaux',
+    'trustpilot.com', 'google.com/maps', 'evaluate', 'write a review',
+    'laisser un avis', 'noter ce produit', 'votre avis compte',
+    'cliquez ici', 'click here', 'read more', 'lire la suite',
+  ]
+  if (noise.some(n => t.includes(n))) return false
+
+  // Too many URLs = not a review
+  const urlCount = (text.match(/https?:\/\//g) || []).length
+  if (urlCount > 1) return false
+
+  // Mostly numbers/special chars = not a review
+  const letterRatio = (text.match(/[a-zA-ZàâäéèêëïîôùûüÿçœæÀ-Ü]/g) || []).length / text.length
+  if (letterRatio < 0.5) return false
+
+  return true
+}
+
+// Deduplicate rows by checking text similarity
+function deduplicateRows(rows) {
+  const seen = new Set()
+  return rows.filter(row => {
+    // Normalize: first 80 chars, lowercase, no spaces
+    const key = normalizeText(row.text).slice(0, 80)
+    if (seen.has(key)) return false
+    // Also check if one text is contained in another (substring dedup)
+    for (const existing of seen) {
+      if (key.includes(existing) || existing.includes(key)) return false
+    }
+    seen.add(key)
+    return true
+  })
 }
 
 function extractRating(text) {
@@ -79,18 +139,28 @@ function extractRating(text) {
 // Split a Linkup page blob into individual review snippets
 function splitIntoReviews(raw) {
   const text = decodeHtml(raw || '')
-  // Split on Trustpilot/review date patterns: "Avis du DD/MM/YYYY" or "... Avis du"
-  const byDate = text.split(/(?:\.{3}\s*)?(?:Avis du \d{2}\/\d{2}\/\d{4}|Review of \d{2}\/\d{2}\/\d{4}|par [A-Z][A-Z\s]+\.\s*\.{3})/)
+
+  // Try to split on clear review boundaries (date patterns, author patterns)
+  const byDate = text.split(/(?:\.{3}\s*)?(?:Avis du \d{2}\/\d{2}\/\d{4}|Review of \d{2}\/\d{2}\/\d{4}|Date de l'expérience|par [A-Z][a-zé]+ [A-Z]\.\s)/)
   if (byDate.length > 2) {
-    return byDate.map(s => s.trim()).filter(s => s.length > 40 && isReviewContent(s))
+    return byDate.map(s => s.trim()).filter(s => isReviewContent(s))
   }
-  // Split on "... " sentence boundary if content is very long
-  if (text.length > 300) {
-    const bySentence = text.split(/(?<=\.)\s+(?=[A-ZÀ-Ü"«])|(?<=\.{3})\s+/)
-    const chunks = bySentence.map(s => s.trim()).filter(s => s.length > 40 && isReviewContent(s))
-    if (chunks.length > 1) return chunks
+
+  // If content is long, try splitting on "Rated X" or star patterns (review separators)
+  const byRating = text.split(/(?:Noté \d sur 5|Rated \d out of 5|(?:^|\n)\d étoiles?\s*\n)/i)
+  if (byRating.length > 2) {
+    return byRating.map(s => s.trim()).filter(s => isReviewContent(s))
   }
-  return isReviewContent(text) ? [text] : []
+
+  // DON'T split on sentence boundaries — this creates fragments
+  // Instead, keep the whole block if it's a valid review
+  if (isReviewContent(text)) {
+    // If very long (>600 chars), likely multiple reviews glued together — take as-is
+    // GPT will handle the analysis
+    return [text]
+  }
+
+  return []
 }
 
 async function logScraping(source, status, records = 0, errorMessage = null) {
@@ -113,20 +183,28 @@ async function logScraping(source, status, records = 0, errorMessage = null) {
   }
 }
 
+// Resolve which table to write to based on targetDb param
+function resolveTable(targetDb, defaultTable) {
+  if (targetDb === 'scraping') return 'scraping_brand'
+  if (targetDb === 'competitor') return 'scraping_competitor'
+  return defaultTable // 'csv' or default → original table
+}
+
 export async function scrapeTrustpilot(req, res) {
-  const { brand = 'fnacdarty.com', maxReviews = 30 } = req.body
+  const { brand = 'fnacdarty.com', maxReviews = 30, targetDb = 'scraping' } = req.body
+  const table = resolveTable(targetDb, 'voix_client_cx')
   await logScraping('Trustpilot', 'running')
   try {
     const results = await linkupSearch(`site:fr.trustpilot.com/review "${brand}" avis client déçu satisfait`, 'deep')
     const max = parseInt(maxReviews)
 
     const reviews = results.flatMap(r => splitIntoReviews(r.content))
-    const rows = reviews.slice(0, max).map((text, i) => ({
+    const rawRows = reviews.map((text, i) => ({
       review_id: hashId('tp', text.slice(0, 100)),
       platform: 'Trustpilot',
-      brand: 'Fnac Darty',
-      category: 'Service Client',
-      text,
+      brand: targetDb === 'competitor' ? brand : 'Fnac Darty',
+      category: null,
+      text: cleanText(text),
       date: new Date().toISOString(),
       rating: extractRating(text),
       sentiment: null,
@@ -137,14 +215,15 @@ export async function scrapeTrustpilot(req, res) {
       share_count: 0,
       reply_count: 0
     }))
+    const rows = deduplicateRows(rawRows).slice(0, max)
 
     const { error } = await supabase
-      .from('voix_client_cx')
+      .from(table)
       .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
     if (error) throw error
 
     await logScraping('Trustpilot', 'completed', rows.length)
-    res.json({ success: true, inserted: rows.length, message: `${rows.length} avis Trustpilot importés` })
+    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} avis Trustpilot importés → ${table}` })
   } catch (err) {
     await logScraping('Trustpilot', 'error', 0, err.message)
     res.status(500).json({ success: false, error: err.message })
@@ -152,20 +231,20 @@ export async function scrapeTrustpilot(req, res) {
 }
 
 export async function scrapeGoogleReviews(req, res) {
-  const { query = 'Fnac Darty', maxReviews = 30 } = req.body
+  const { query = 'Fnac Darty', maxReviews = 30, targetDb = 'scraping' } = req.body
+  const table = resolveTable(targetDb, 'voix_client_cx')
   await logScraping('Google Reviews', 'running')
   try {
-    // Target actual review aggregators, not generic "how to" pages
     const results = await linkupSearch(`"${query}" avis clients site:trustpilot.com OR site:google.com/maps OR site:avis-verifies.com OR "étoiles" OR "stars" déçu OR satisfait OR recommande`, 'deep')
     const max = parseInt(maxReviews)
 
     const reviews = results.flatMap(r => splitIntoReviews(r.content))
-    const rows = reviews.slice(0, max).map(text => ({
+    const rawRows = reviews.map(text => ({
       review_id: hashId('gr', text.slice(0, 100)),
       platform: 'Google Reviews',
-      brand: 'Fnac Darty',
-      category: 'Expérience générale',
-      text,
+      brand: targetDb === 'competitor' ? query : 'Fnac Darty',
+      category: null,
+      text: cleanText(text),
       date: new Date().toISOString(),
       rating: extractRating(text),
       sentiment: null,
@@ -176,14 +255,15 @@ export async function scrapeGoogleReviews(req, res) {
       share_count: 0,
       reply_count: 0
     }))
+    const rows = deduplicateRows(rawRows).slice(0, max)
 
     const { error } = await supabase
-      .from('voix_client_cx')
+      .from(table)
       .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
     if (error) throw error
 
     await logScraping('Google Reviews', 'completed', rows.length)
-    res.json({ success: true, inserted: rows.length, message: `${rows.length} avis Google importés` })
+    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} avis Google importés → ${table}` })
   } catch (err) {
     await logScraping('Google Reviews', 'error', 0, err.message)
     res.status(500).json({ success: false, error: err.message })
@@ -191,15 +271,39 @@ export async function scrapeGoogleReviews(req, res) {
 }
 
 export async function scrapeTwitter(req, res) {
-  const { searchTerm = 'Fnac Darty', maxItems = 50, target = 'reputation' } = req.body
+  const { searchTerm = 'Fnac Darty', maxItems = 50, target = 'reputation', targetDb = 'scraping' } = req.body
   await logScraping('Twitter/X', 'running')
   try {
     const results = await linkupSearch(`"${searchTerm}" (avis OR problème OR déçu OR satisfait OR commande OR livraison OR SAV) site:twitter.com OR site:x.com OR site:reddit.com`, 'deep')
     const max = parseInt(maxItems)
-    const table = target === 'benchmark' ? 'benchmark_marche' : 'reputation_crise'
+
+    // If targeting scraping/competitor DB, use the unified scraping tables
+    const useScrapeDb = targetDb === 'scraping' || targetDb === 'competitor'
+    const table = useScrapeDb
+      ? resolveTable(targetDb, 'reputation_crise')
+      : (target === 'benchmark' ? 'benchmark_marche' : 'reputation_crise')
 
     let rows
-    if (table === 'reputation_crise') {
+    if (useScrapeDb) {
+      // Unified schema for scraping_brand / scraping_competitor
+      // sentiment + category seront enrichis par Make.com / OpenAI
+      rows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
+        review_id: hashId('tw', r.url + r.content?.slice(0, 80)),
+        platform: 'Twitter/X',
+        brand: targetDb === 'competitor' ? searchTerm : 'Fnac Darty',
+        category: null,
+        text: decodeHtml(r.content || r.name || ''),
+        date: new Date().toISOString(),
+        rating: null,
+        sentiment: null,
+        user_followers: 0,
+        is_verified: false,
+        language: 'fr',
+        location: null,
+        share_count: 0,
+        reply_count: 0
+      }))
+    } else if (table === 'reputation_crise') {
       rows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
         review_id: hashId('tw', r.url + r.content?.slice(0, 80)),
         platform: 'Twitter/X',
@@ -244,7 +348,7 @@ export async function scrapeTwitter(req, res) {
     if (error) throw error
 
     await logScraping('Twitter/X', 'completed', rows.length)
-    res.json({ success: true, inserted: rows.length, message: `${rows.length} mentions importées` })
+    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} mentions importées → ${table}` })
   } catch (err) {
     await logScraping('Twitter/X', 'error', 0, err.message)
     res.status(500).json({ success: false, error: err.message })

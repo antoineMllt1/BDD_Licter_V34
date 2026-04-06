@@ -10,6 +10,8 @@ import Automation from './pages/Automation.jsx'
 import DataManager from './pages/DataManager.jsx'
 import ComexReport from './pages/ComexReport.jsx'
 import ScrapingResults from './pages/ScrapingResults.jsx'
+import ScrapingBrand from './pages/ScrapingBrand.jsx'
+import ScrapingCompetitor from './pages/ScrapingCompetitor.jsx'
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Overview />} />
+            <Route path="/scraping-brand" element={<ScrapingBrand />} />
+            <Route path="/scraping-competitor" element={<ScrapingCompetitor />} />
             <Route path="/reputation" element={<Reputation />} />
             <Route path="/benchmark" element={<Benchmark />} />
             <Route path="/cx" element={<CX />} />

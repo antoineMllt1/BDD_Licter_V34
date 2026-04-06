@@ -8,10 +8,12 @@ const WEBHOOKS = {
   5086449: 'https://hook.eu1.make.com/48ywcct20gbr6wi769py3jfo2epqoya5',
 }
 
-const SCENARIO_IDS = [5085615, 5094479, 5094482, 5085608, 5086449]
+const SCENARIO_IDS = [5131635, 5131643, 5085615, 5094479, 5094482, 5085608, 5086449]
 
 // Static fallback data (always shown if no token)
 const STATIC_SCENARIOS = [
+  { id: 5131635, name: 'BDD2026 - Analyse IA Sentiment scraping_brand', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-04T12:00:00.000Z', usedPackages: ['supabase', 'openai-gpt-3'] },
+  { id: 5131643, name: 'BDD2026 - Analyse IA Sentiment scraping_competitor', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-04T12:00:00.000Z', usedPackages: ['supabase', 'openai-gpt-3'] },
   { id: 5085615, name: 'BDD2026 - Analyse IA Sentiment OpenAI to Supabase (Fnac Darty)', isActive: false, executions: 37, errors: 10, lastEdit: '2026-04-01T09:18:32.469Z', usedPackages: ['supabase', 'openai-gpt-3'] },
   { id: 5085608, name: 'BDD2026 - Scraping Apify to Supabase (Fnac Darty)', isActive: false, executions: 0, errors: 0, lastEdit: '2026-04-01T07:49:32.002Z', usedPackages: ['http'] },
   { id: 5086449, name: 'BDD2026 - Webhook Sentiment Pipeline (Fnac Darty)', isActive: false, executions: 28, errors: 0, lastEdit: '2026-04-01T08:17:28.913Z', usedPackages: ['gateway', 'supabase', 'openai-gpt-3'] },

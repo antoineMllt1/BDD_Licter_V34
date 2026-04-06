@@ -3,14 +3,19 @@ import { api } from '../lib/api.js'
 import { supabase } from '../lib/supabase.js'
 import { StatusBadge } from '../components/StatusBadge.jsx'
 
+const DB_TARGETS = [
+  { value: 'scraping', label: 'Scraping', color: '#6C5CE7', icon: '◉' },
+  { value: 'competitor', label: 'Concurrents', color: '#E17055', icon: '◎' },
+  { value: 'csv', label: 'CSV', color: '#00B894', icon: '◻' },
+]
+
 const SCRAPERS = [
   {
     id: 'trustpilot',
     name: 'Trustpilot',
     icon: '★',
     iconBg: '#FFE8D6',
-    desc: 'Extrait les avis clients de la page Trustpilot Fnac Darty. Insère dans la table voix_client_cx avec déduplication automatique.',
-    target: 'voix_client_cx',
+    desc: 'Extrait les avis clients Trustpilot avec déduplication automatique.',
     fields: [
       { key: 'brand', label: 'Domaine Trustpilot', defaultValue: 'fnacdarty.com', placeholder: 'fnacdarty.com' },
       { key: 'maxReviews', label: 'Nombre max d\'avis', defaultValue: '30', type: 'number', placeholder: '30' },
@@ -22,8 +27,7 @@ const SCRAPERS = [
     name: 'Google Reviews',
     icon: 'G',
     iconBg: '#E8F4FD',
-    desc: 'Scrape les avis Google Maps pour Fnac Darty. Via Apify actor compass/google-maps-reviews-scraper.',
-    target: 'voix_client_cx',
+    desc: 'Scrape les avis Google Maps / agrégateurs d\'avis.',
     fields: [
       { key: 'query', label: 'Recherche Google', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty' },
       { key: 'maxReviews', label: 'Nombre max d\'avis', defaultValue: '30', type: 'number', placeholder: '30' },
@@ -35,12 +39,11 @@ const SCRAPERS = [
     name: 'Twitter / X',
     icon: '𝕏',
     iconBg: '#E8F0FE',
-    desc: 'Scrape les tweets mentionnant Fnac Darty ou Boulanger. Insère dans reputation_crise ou benchmark_marche selon la cible.',
-    target: 'reputation_crise / benchmark_marche',
+    desc: 'Scrape les tweets et mentions sociales.',
     fields: [
       { key: 'searchTerm', label: 'Terme de recherche', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty' },
       { key: 'maxItems', label: 'Nombre max de tweets', defaultValue: '50', type: 'number', placeholder: '50' },
-      { key: 'target', label: 'Table cible', defaultValue: 'reputation', type: 'select', options: [
+      { key: 'target', label: 'Table cible (mode CSV)', defaultValue: 'reputation', type: 'select', options: [
         { value: 'reputation', label: 'Réputation & Crise' },
         { value: 'benchmark', label: 'Benchmark Marché' },
       ]},
@@ -51,14 +54,18 @@ const SCRAPERS = [
 
 function ScraperCard({ scraper }) {
   const [params, setParams] = useState(() => Object.fromEntries(scraper.fields.map(f => [f.key, f.defaultValue])))
+  const [targetDb, setTargetDb] = useState('scraping')
   const [status, setStatus] = useState('idle')
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
+  const activeDbInfo = DB_TARGETS.find(d => d.value === targetDb)
+  const resolvedTable = targetDb === 'scraping' ? 'scraping_brand' : targetDb === 'competitor' ? 'scraping_competitor' : (scraper.id === 'twitter' ? (params.target === 'benchmark' ? 'benchmark_marche' : 'reputation_crise') : 'voix_client_cx')
+
   const handleRun = async () => {
     setStatus('running'); setResult(null); setError(null)
     try {
-      const data = await scraper.apiFn(params)
+      const data = await scraper.apiFn({ ...params, targetDb })
       setResult(data)
       setStatus('success')
     } catch (err) {
@@ -82,7 +89,39 @@ function ScraperCard({ scraper }) {
       </div>
 
       <div className="scraper-card-desc">{scraper.desc}</div>
-      <div className="scraper-card-meta">→ Table: <strong>{scraper.target}</strong></div>
+
+      {/* Database target selector */}
+      <div style={{ marginBottom: 12 }}>
+        <label className="form-label" style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: 5, display: 'block' }}>Destination</label>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {DB_TARGETS.map(db => (
+            <button
+              key={db.value}
+              onClick={() => setTargetDb(db.value)}
+              style={{
+                flex: 1,
+                padding: '5px 4px',
+                fontSize: 10,
+                border: targetDb === db.value ? `2px solid ${db.color}` : '2px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                background: targetDb === db.value ? `${db.color}12` : 'var(--surface)',
+                color: targetDb === db.value ? db.color : 'var(--text-muted)',
+                fontWeight: targetDb === db.value ? 700 : 500,
+                cursor: 'pointer',
+                textAlign: 'center',
+                lineHeight: 1.3,
+                transition: 'all 0.15s',
+              }}
+            >
+              <div style={{ fontSize: 13 }}>{db.icon}</div>
+              {db.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+          → <strong style={{ color: activeDbInfo.color }}>{resolvedTable}</strong>
+        </div>
+      </div>
 
       <div style={{ marginBottom: 14 }}>
         {scraper.fields.map(field => (
@@ -136,11 +175,11 @@ function ScraperCard({ scraper }) {
 }
 
 const SOURCE_TABLE = {
-  'Trustpilot': 'voix_client_cx',
-  'trustpilot': 'voix_client_cx',
-  'Google Reviews': 'voix_client_cx',
-  'google_reviews': 'voix_client_cx',
-  'Twitter/X': 'reputation_crise',
+  'Trustpilot': 'scraping_brand',
+  'trustpilot': 'scraping_brand',
+  'Google Reviews': 'scraping_brand',
+  'google_reviews': 'scraping_brand',
+  'Twitter/X': 'scraping_brand',
 }
 
 function TextModal({ text, onClose }) {

@@ -3,6 +3,8 @@ import { NavLink, useLocation } from 'react-router-dom'
 const NAV = [
   { section: 'Analyse', items: [
     { to: '/', icon: '◈', label: 'Vue d\'ensemble' },
+    { to: '/scraping-brand', icon: '⬤', label: 'Scraping Marque', dotColor: '#6C5CE7' },
+    { to: '/scraping-competitor', icon: '⬤', label: 'Scraping Concurrents', dotColor: '#E17055' },
     { to: '/reputation', icon: '⬤', label: 'Réputation & Crise', dot: 'negative' },
     { to: '/benchmark', icon: '⬤', label: 'Benchmark Marché', dot: 'blue' },
     { to: '/cx', icon: '⬤', label: 'Expérience Client', dot: 'neutral' },
@@ -41,14 +43,14 @@ export default function Sidebar() {
       {NAV.map(({ section, items }) => (
         <div key={section} className="sidebar-section">
           <div className="sidebar-section-label">{section}</div>
-          {items.map(({ to, icon, label, dot }) => (
+          {items.map(({ to, icon, label, dot, dotColor }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
               end={to === '/'}
             >
-              <span className="nav-icon" style={dot ? { color: `var(--${dot === 'blue' ? 'blue' : dot})` } : {}}>{icon}</span>
+              <span className="nav-icon" style={dotColor ? { color: dotColor } : dot ? { color: `var(--${dot === 'blue' ? 'blue' : dot})` } : {}}>{icon}</span>
               {label}
             </NavLink>
           ))}
