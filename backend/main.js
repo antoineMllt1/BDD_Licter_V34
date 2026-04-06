@@ -7,10 +7,12 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Load the backend-local env file regardless of the shell's current working directory.
+// Support both project-root `.env` and `backend/.env`, with backend-local values overriding root ones.
 config({ path: path.join(__dirname, '..', '.env') })
+config({ path: path.join(__dirname, '.env'), override: true })
 
 const { default: router } = await import('./routes/index.js')
+const { initializeScrapeScheduler } = await import('./services/scrape-scheduler.service.js')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -25,5 +27,6 @@ app.get('/api/health', (req, res) => {
 })
 
 app.listen(PORT, () => {
+  initializeScrapeScheduler()
   console.log(`Licter backend running on http://localhost:${PORT}`)
 })

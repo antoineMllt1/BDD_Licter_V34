@@ -1,5 +1,14 @@
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
+import { cleanScrapedText, decodeHtml, isUsefulScrapedText } from '../utils/scraper-cleaner.js'
+import { scrapeGoogleReviewsDirect, scrapeTrustpilotDirect } from '../services/browser-review-scraper.service.js'
+import {
+  completeScrapeRun,
+  createScrapeRun,
+  emitScrapeEvent,
+  registerScrapeStream,
+  sendScrapeHistory
+} from '../services/scrape-events.service.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -23,6 +32,17 @@ async function linkupSearch(query, depth = 'deep') {
   return res.data.results || []
 }
 
+function emitRunEvent(runId, source, message, extra = {}) {
+  emitScrapeEvent({
+    type: 'progress',
+    runId,
+    source,
+    level: extra.level || 'info',
+    message,
+    ...extra
+  })
+}
+
 // Normalize text for dedup: lowercase, collapse whitespace, trim
 function normalizeText(str) {
   return (str || '').toLowerCase().replace(/\s+/g, ' ').replace(/[^\w\sàâäéèêëïîôùûüÿçœæ]/g, '').trim()
@@ -36,17 +56,70 @@ function hashId(prefix, str) {
   return `${prefix}-${Math.abs(h)}`
 }
 
-function decodeHtml(str) {
-  return (str || '').replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d)))
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+const boilerplatePatterns = [
+  /vous pouvez aussi nous adresser votre r[ée]clamation compl[èe]te[^|.\n]*/gi,
+  /toujours soucieux de la qualit[ée] de service[^|.\n]*/gi,
+  /\b\d[\d\s]*personnes ont d[ée]j[àa] [ée]valu[ée] [^.|\n]*/gi,
+  /apprenez-en plus sur leurs exp[ée]riences et partagez la v[ôo]tre[^|.\n]*/gi,
+  /lire\s+\d[\d\s-]*avis sur\s+\d[\d\s]*/gi,
+  /bonjour,\s*votre avis a retenu toute notre attention[^|]*?l['’]?[ée]quipe service client\.?/gi,
+  /a tr[èe]s bient[ôo]t sur fnac\.com,\s*l['’]?[ée]quipe service client\.?/gi,
+  /nous vous remercions de la fid[ée]lit[ée] et de la confiance que vous portez [^.|\n]*/gi,
+  /avis-clients@fnacdarty\.com/gi
+]
+
+function reviewSignalScore(text) {
+  const t = decodeHtml(text || '').toLowerCase()
+  let score = Math.min(40, t.length / 12)
+
+  const positives = ['je ', "j'", 'mon ', 'ma ', 'mes ', 'moi', 'satisfait', 'decu', 'déçu', 'recommande', 'livraison', 'commande', 'retour', 'sav', 'service client', 'produit']
+  const negatives = ['avis a retenu toute notre attention', "l'équipe service client", 'réclamation complète', 'soucieux de la qualité de service', 'personnes ont déjà évalué', 'apprenez-en plus']
+
+  score += positives.filter(token => t.includes(token)).length * 8
+  score -= negatives.filter(token => t.includes(token)).length * 25
+
+  if (/^bonjour[,!]/i.test(text || '')) score -= 20
+  if (/@/.test(text || '')) score -= 15
+  if (/\b(?:fnac\.com|trustpilot|lire\s+\d)/i.test(text || '')) score -= 20
+
+  return score
+}
+
+function stripBoilerplate(text) {
+  let cleaned = decodeHtml(text || '')
+
+  for (const pattern of boilerplatePatterns) {
+    cleaned = cleaned.replace(pattern, ' ')
+  }
+
+  cleaned = cleaned
+    .replace(/\|/g, ' ')
+    .replace(/\.{3,}/g, ' | ')
+    .replace(/\b(?:Lire|Read)\s+\d[\d\s-]*avis?\s+sur\s+\d[\d\s]*/gi, ' ')
+    .replace(/\b(?:Trustpilot|Fnac)\b[^.]{0,80}évalué[^.]*/gi, ' ')
+    .replace(/\b(?:fnac|darty|trustpilot)\.com\b/gi, ' ')
+    .replace(/\bcom\b/gi, ' ')
+    .replace(/\s+[.,;:!?](?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const segments = cleaned
+    .split(/\s+\|\s+|(?<=[!?])\s+(?=Bonjour[,!])|(?<=\.)\s+(?=Bonjour[,!])/i)
+    .map(part => part.trim())
+    .filter(Boolean)
+
+  if (!segments.length) return cleaned
+
+  const viable = segments
+    .map(segment => ({ segment, score: reviewSignalScore(segment) }))
+    .filter(item => item.segment.length >= 25)
+    .sort((a, b) => b.score - a.score)
+
+  return viable[0]?.segment || cleaned
 }
 
 function cleanText(str) {
-  return decodeHtml(str || '')
-    .replace(/\u00A0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return cleanScrapedText(stripBoilerplate(str || ''))
 }
 
 function inferSentiment(raw) {
@@ -191,27 +264,40 @@ function resolveTable(targetDb, defaultTable) {
 }
 
 export async function scrapeTrustpilot(req, res) {
-  const { brand = 'fnacdarty.com', maxReviews = 30, targetDb = 'scraping' } = req.body
+  const { brand = 'fnac.com', maxReviews = 30, targetDb = 'scraping', massive = false } = req.body
   const table = resolveTable(targetDb, 'voix_client_cx')
+  const runId = createScrapeRun({ source: 'Trustpilot', mode: massive ? 'massive' : 'standard', targetDb, query: brand })
   await logScraping('Trustpilot', 'running')
   try {
-    const results = await linkupSearch(`site:fr.trustpilot.com/review "${brand}" avis client déçu satisfait`, 'deep')
-    const max = parseInt(maxReviews)
+    const requestedMax = parseInt(maxReviews, 10) || 30
+    const max = massive ? Math.max(requestedMax, 180) : requestedMax
+    emitRunEvent(runId, 'Trustpilot', `Ouverture du domaine ${brand} (${max} avis cibles)`)
+    const reviews = await scrapeTrustpilotDirect({
+      brand,
+      maxReviews: max,
+      massive,
+      onProgress: ({ message, ...extra }) => emitRunEvent(runId, 'Trustpilot', message, extra)
+    })
+    emitRunEvent(runId, 'Trustpilot', `${reviews.length} avis utiles extraits avant insertion`, { level: 'success' })
 
-    const reviews = results.flatMap(r => splitIntoReviews(r.content))
-    const rawRows = reviews.map((text, i) => ({
-      review_id: hashId('tp', text.slice(0, 100)),
+    const rawRows = reviews.map(review => ({
+      review_id: hashId('tp', `${brand}-${review.text.slice(0, 100)}`),
       platform: 'Trustpilot',
       brand: targetDb === 'competitor' ? brand : 'Fnac Darty',
       category: null,
-      text: cleanText(text),
-      date: new Date().toISOString(),
-      rating: extractRating(text),
+      text: review.text,
+      date: review.date || new Date().toISOString(),
+      review_date_original: review.reviewDateOriginal || review.date || null,
+      rating: review.rating,
       sentiment: null,
+      source_url: review.sourceUrl || `https://fr.trustpilot.com/review/${brand}`,
+      store_name: review.storeName || null,
+      store_address: review.storeAddress || null,
+      store_city: review.storeCity || null,
       user_followers: 0,
       is_verified: false,
       language: 'fr',
-      location: 'FR',
+      location: brand.toLowerCase() === 'fnac.com' ? 'Fnac.com' : brand,
       share_count: 0,
       reply_count: 0
     }))
@@ -223,35 +309,50 @@ export async function scrapeTrustpilot(req, res) {
     if (error) throw error
 
     await logScraping('Trustpilot', 'completed', rows.length)
+    completeScrapeRun({ runId, source: 'Trustpilot', inserted: rows.length, table })
     res.json({ success: true, inserted: rows.length, table, message: `${rows.length} avis Trustpilot importés → ${table}` })
   } catch (err) {
     await logScraping('Trustpilot', 'error', 0, err.message)
+    completeScrapeRun({ runId, source: 'Trustpilot', error: err.message })
     res.status(500).json({ success: false, error: err.message })
   }
 }
 
 export async function scrapeGoogleReviews(req, res) {
-  const { query = 'Fnac Darty', maxReviews = 30, targetDb = 'scraping' } = req.body
+  const { query = 'Fnac Darty', maxReviews = 30, targetDb = 'scraping', massive = false } = req.body
   const table = resolveTable(targetDb, 'voix_client_cx')
+  const runId = createScrapeRun({ source: 'Google Reviews', mode: massive ? 'massive' : 'standard', targetDb, query })
   await logScraping('Google Reviews', 'running')
   try {
-    const results = await linkupSearch(`"${query}" avis clients site:trustpilot.com OR site:google.com/maps OR site:avis-verifies.com OR "étoiles" OR "stars" déçu OR satisfait OR recommande`, 'deep')
-    const max = parseInt(maxReviews)
+    const requestedMax = parseInt(maxReviews, 10) || 30
+    const max = massive ? Math.max(requestedMax, 240) : requestedMax
+    emitRunEvent(runId, 'Google Reviews', `Recherche Google Maps nationale sur "${query}" (${max} avis cibles)`)
+    const reviews = await scrapeGoogleReviewsDirect({
+      query,
+      maxReviews: max,
+      massive,
+      onProgress: ({ message, ...extra }) => emitRunEvent(runId, 'Google Reviews', message, extra)
+    })
+    emitRunEvent(runId, 'Google Reviews', `${reviews.length} avis utiles extraits avant insertion`, { level: 'success' })
 
-    const reviews = results.flatMap(r => splitIntoReviews(r.content))
-    const rawRows = reviews.map(text => ({
-      review_id: hashId('gr', text.slice(0, 100)),
+    const rawRows = reviews.map(review => ({
+      review_id: hashId('gr', `${query}-${review.text.slice(0, 100)}`),
       platform: 'Google Reviews',
       brand: targetDb === 'competitor' ? query : 'Fnac Darty',
       category: null,
-      text: cleanText(text),
-      date: new Date().toISOString(),
-      rating: extractRating(text),
+      text: review.text,
+      date: review.date || new Date().toISOString(),
+      review_date_original: review.reviewDateOriginal || review.date || null,
+      rating: review.rating,
       sentiment: null,
+      source_url: review.sourceUrl || null,
+      store_name: review.storeName || review.location || null,
+      store_address: review.storeAddress || null,
+      store_city: review.storeCity || null,
       user_followers: 0,
       is_verified: false,
       language: 'fr',
-      location: 'FR',
+      location: review.location || 'France',
       share_count: 0,
       reply_count: 0
     }))
@@ -263,9 +364,59 @@ export async function scrapeGoogleReviews(req, res) {
     if (error) throw error
 
     await logScraping('Google Reviews', 'completed', rows.length)
+    completeScrapeRun({ runId, source: 'Google Reviews', inserted: rows.length, table })
     res.json({ success: true, inserted: rows.length, table, message: `${rows.length} avis Google importés → ${table}` })
   } catch (err) {
     await logScraping('Google Reviews', 'error', 0, err.message)
+    completeScrapeRun({ runId, source: 'Google Reviews', error: err.message })
+    res.status(500).json({ success: false, error: err.message })
+  }
+}
+
+export async function scrapeReddit(req, res) {
+  const { query = 'Fnac Darty', maxItems = 30, targetDb = 'scraping', massive = false } = req.body
+  const table = resolveTable(targetDb, 'voix_client_cx')
+  const runId = createScrapeRun({ source: 'Reddit', mode: massive ? 'massive' : 'standard', targetDb, query })
+  await logScraping('Reddit', 'running')
+  try {
+    const results = await linkupSearch(`"${query}" site:reddit.com (avis OR experience OR probleme OR déçu OR satisfait OR commande OR livraison OR SAV)`, 'deep')
+    const requestedMax = parseInt(maxItems, 10) || 30
+    const max = massive ? Math.max(requestedMax, 180) : requestedMax
+
+    const rawRows = results.slice(0, max).map(result => {
+      const cleanedText = cleanText(result.content || result.name || '')
+      return {
+        review_id: hashId('rd', `${result.url || query}-${cleanedText.slice(0, 100)}`),
+        platform: 'Reddit',
+        brand: targetDb === 'competitor' ? query : 'Fnac Darty',
+        category: null,
+        text: cleanedText,
+        date: new Date().toISOString(),
+        rating: null,
+        sentiment: null,
+        user_followers: 0,
+        is_verified: false,
+        language: 'fr',
+        location: null,
+        share_count: 0,
+        reply_count: 0
+      }
+    })
+
+    const rows = deduplicateRows(rawRows).filter(row => row.text?.length > 20).filter(row => isUsefulScrapedText(row.text))
+    emitRunEvent(runId, 'Reddit', `${rows.length} posts propres retenus apres nettoyage`, { level: 'success' })
+
+    const { error } = await supabase
+      .from(table)
+      .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
+    if (error) throw error
+
+    await logScraping('Reddit', 'completed', rows.length)
+    completeScrapeRun({ runId, source: 'Reddit', inserted: rows.length, table })
+    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} posts Reddit importés → ${table}` })
+  } catch (err) {
+    await logScraping('Reddit', 'error', 0, err.message)
+    completeScrapeRun({ runId, source: 'Reddit', error: err.message })
     res.status(500).json({ success: false, error: err.message })
   }
 }
@@ -363,4 +514,15 @@ export async function getScrapingLogs(req, res) {
     .limit(20)
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
+}
+
+export function streamScrapeEvents(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive'
+  })
+  res.flushHeaders?.()
+  sendScrapeHistory(res)
+  registerScrapeStream(res)
 }

@@ -224,35 +224,6 @@ export default function Automation() {
           scenarios.map(s => <ScenarioCard key={s.id} scenario={s} onAction={loadScenarios} />)
         )}
       </div>
-
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">◉ Pipeline complet</div>
-        </div>
-        <div style={{ padding: '16px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', paddingBottom: 8 }}>
-            {[
-              { label: 'Apify Scraping', sub: 'Extraction', icon: '↻', color: 'var(--blue)' },
-              { arrow: true },
-              { label: 'Make Orchestration', sub: 'Workflow', icon: '⚡', color: 'var(--neutral)' },
-              { arrow: true },
-              { label: 'OpenAI Analysis', sub: 'IA Sentiment', icon: '🧠', color: 'var(--primary)' },
-              { arrow: true },
-              { label: 'Supabase Storage', sub: 'Base de données', icon: '◈', color: 'var(--positive)' },
-              { arrow: true },
-              { label: 'Dashboard', sub: 'Visualisation', icon: '◻', color: 'var(--primary)' },
-            ].map((step, i) => step.arrow ? (
-              <span key={i} style={{ color: 'var(--text-light)', fontSize: 18, padding: '0 8px', flexShrink: 0 }}>→</span>
-            ) : (
-              <div key={i} style={{ textAlign: 'center', background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', minWidth: 110, flexShrink: 0 }}>
-                <div style={{ fontSize: 20, marginBottom: 4, color: step.color }}>{step.icon}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{step.label}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{step.sub}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

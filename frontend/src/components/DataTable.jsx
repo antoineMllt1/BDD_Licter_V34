@@ -1,4 +1,4 @@
-export default function DataTable({ columns, rows, emptyMessage = 'Aucune donnée' }) {
+export default function DataTable({ columns, rows, emptyMessage = 'Aucune donnée', onRowClick, rowKey }) {
   if (!rows || rows.length === 0) {
     return (
       <div className="empty-state">
@@ -21,8 +21,12 @@ export default function DataTable({ columns, rows, emptyMessage = 'Aucune donné
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
+          {rows.map((row, index) => (
+            <tr
+              key={rowKey ? row[rowKey] ?? index : index}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              style={onRowClick ? { cursor: 'pointer' } : undefined}
+            >
               {columns.map(col => (
                 <td key={col.key}>
                   {col.render ? col.render(row[col.key], row) : (
