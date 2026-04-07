@@ -5,19 +5,21 @@ import { StatusBadge } from '../components/StatusBadge.jsx'
 const SCENARIO_META = {
   5131635: {
     label: 'Enrichir - Scraping Marque',
-    desc: "Enrichit les donnees scrapees recentes dans scraping_brand. GPT-4o-mini analyse chaque texte et attribue sentiment et categorie.",
+    desc: "Enrichit les donnees scrapees recentes dans scraping_brand. GPT-4o-mini analyse chaque texte et attribue sentiment, categorie (SAV, delais de livraison, prix, conseil vendeur, garantie) et note estimee (1-5).",
     modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
     icon: 'AI',
-    color: '#6C5CE7',
-    progressLabel: 'sentiment + categorie'
+    color: 'var(--primary)',
+    progressLabel: 'sentiment + categorie + note',
+    group: 'enrichment'
   },
   5131643: {
     label: 'Enrichir - Scraping Concurrents',
-    desc: "Enrichit les donnees scrapees recentes dans scraping_competitor. GPT-4o-mini analyse chaque texte et attribue sentiment et categorie.",
+    desc: "Enrichit les donnees scrapees recentes dans scraping_competitor. GPT-4o-mini analyse chaque texte et attribue sentiment, categorie (SAV, delais de livraison, prix, conseil vendeur, garantie) et note estimee (1-5).",
     modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
     icon: 'AI',
-    color: '#E17055',
-    progressLabel: 'sentiment + categorie'
+    color: '#F97316',
+    progressLabel: 'sentiment + categorie + note',
+    group: 'enrichment'
   },
   5085615: {
     label: 'Sentiment - Benchmark Marche',
@@ -25,7 +27,8 @@ const SCENARIO_META = {
     modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
     icon: 'AI',
     color: 'var(--blue)',
-    progressLabel: 'sentiment'
+    progressLabel: 'sentiment',
+    group: 'benchmark'
   },
   5094479: {
     label: 'Sentiment - Experience Client',
@@ -33,7 +36,8 @@ const SCENARIO_META = {
     modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
     icon: 'AI',
     color: 'var(--neutral)',
-    progressLabel: 'sentiment'
+    progressLabel: 'sentiment',
+    group: 'enrichment'
   },
   5094482: {
     label: 'Sentiment - Reputation & Crise',
@@ -41,14 +45,16 @@ const SCENARIO_META = {
     modules: ['Supabase', 'Iterator', 'OpenAI GPT-4o-mini', 'Supabase'],
     icon: 'AI',
     color: 'var(--negative)',
-    progressLabel: 'sentiment'
+    progressLabel: 'sentiment',
+    group: 'reputation'
   },
   5085608: {
     label: 'Scraping Apify -> Supabase',
     desc: 'Declenche un actor Apify pour scraper des avis frais et les inserer dans Supabase avec deduplication.',
     modules: ['HTTP Request', 'Iterator', 'HTTP Request'],
     icon: 'AP',
-    color: 'var(--primary)'
+    color: 'var(--primary)',
+    group: 'scraping'
   },
   5086449: {
     label: 'Webhook Sentiment Pipeline',
@@ -57,11 +63,50 @@ const SCENARIO_META = {
     icon: 'WH',
     color: 'var(--positive)',
     progressLabel: 'sentiment + categorie',
-    hasWebhook: true
+    hasWebhook: true,
+    group: 'pipeline'
   }
 }
 
 const POLL_INTERVAL_MS = 4000
+const GROUP_ORDER = ['enrichment', 'benchmark', 'reputation', 'social', 'scraping', 'pipeline', 'other']
+const GROUP_META = {
+  enrichment: {
+    title: 'Enrichissement IA',
+    subtitle: 'Scenarios qui enrichissent les tables CX, marque et concurrents.',
+    badge: 'IA'
+  },
+  benchmark: {
+    title: 'Benchmark',
+    subtitle: 'Scenarios dedies a la lecture et la qualification du benchmark marche.',
+    badge: 'BM'
+  },
+  reputation: {
+    title: 'Reputation & Crise',
+    subtitle: 'Automatisations de veille, qualification et suivi de crise.',
+    badge: 'CR'
+  },
+  social: {
+    title: 'Social Media',
+    subtitle: 'Collecte et enrichissement des mentions sociales.',
+    badge: 'SM'
+  },
+  scraping: {
+    title: 'Scraping & Ingestion',
+    subtitle: 'Pipelines d ingestion vers Supabase depuis les sources externes.',
+    badge: 'SC'
+  },
+  pipeline: {
+    title: 'Webhooks & Pipelines',
+    subtitle: 'Scenarios declenches manuellement ou via webhook.',
+    badge: 'WH'
+  },
+  other: {
+    title: 'Autres automatisations',
+    subtitle: 'Scenarios detectes mais non classes automatiquement.',
+    badge: 'MK'
+  }
+}
 
 function buildStageLabels(modules = []) {
   const fallback = ['Demarrage', 'Traitement', 'Finalisation']
@@ -97,6 +142,38 @@ function getRunProgress(runState) {
   const stageCount = Math.max(1, runState.stages.length)
   const stageProgress = Math.round(((runState.currentStage + 1) / stageCount) * 100)
   return Math.max(runState.progress, Math.min(100, stageProgress))
+}
+
+function inferScenarioGroup(scenario) {
+  const meta = SCENARIO_META[scenario.id]
+  if (meta?.group) return meta.group
+
+  const value = `${scenario.name || ''} ${(scenario.usedPackages || []).join(' ')}`.toLowerCase()
+
+  if (value.includes('social') || value.includes('mention') || value.includes('twitter') || value.includes('tiktok') || value.includes('instagram')) return 'social'
+  if (value.includes('benchmark')) return 'benchmark'
+  if (value.includes('reputation') || value.includes('crise')) return 'reputation'
+  if (value.includes('scraping') || value.includes('apify') || value.includes('ingest')) return 'scraping'
+  if (value.includes('webhook') || value.includes('pipeline')) return 'pipeline'
+  if (value.includes('enrich') || value.includes('sentiment') || value.includes('analyse ia') || value.includes('cx')) return 'enrichment'
+
+  return 'other'
+}
+
+function getScenarioCapabilityMeta(scenario, meta) {
+  const hasWebhook = Boolean(scenario.hasWebhook || meta.hasWebhook)
+  const launchMode = scenario.launchMode || (hasWebhook ? 'webhook' : 'api')
+  const controlMode = scenario.controlMode || 'api'
+  const launchHint = scenario.launchHint || (hasWebhook
+    ? 'Declenchement disponible via webhook.'
+    : 'Declenchement disponible via Make API.')
+
+  return {
+    hasWebhook,
+    launchMode,
+    controlMode,
+    launchHint
+  }
 }
 
 function ScenarioProgress({ runState, color }) {
@@ -150,8 +227,16 @@ function ScenarioProgress({ runState, color }) {
 
 function ScenarioCard({ scenario, runState, onToggle, onRun }) {
   const meta = SCENARIO_META[scenario.id] || {}
+  const capability = getScenarioCapabilityMeta(scenario, meta)
   const [loading, setLoading] = useState(null)
   const [toast, setToast] = useState(null)
+  const toggleDisabled = loading !== null || capability.controlMode === 'unavailable'
+  const runDisabled = loading !== null || runState?.status === 'running' || capability.launchMode === 'unavailable'
+  const accessLabel = capability.launchMode === 'unavailable'
+    ? capability.launchHint
+    : capability.hasWebhook
+      ? 'Webhook disponible'
+      : 'Lancement via Make API'
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -218,27 +303,27 @@ function ScenarioCard({ scenario, runState, onToggle, onRun }) {
           <button
             className={`toggle ${scenario.isActive ? 'on' : ''} ${loading === 'toggle' ? 'loading' : ''}`}
             onClick={handleToggle}
-            disabled={loading !== null}
+            disabled={toggleDisabled}
             title={scenario.isActive ? 'Desactiver' : 'Activer'}
           />
-          <span className="toggle-label">{scenario.isActive ? 'Actif' : 'Inactif'}</span>
+          <span className="toggle-label">
+            {capability.controlMode === 'unavailable' ? 'Pilotage API indisponible' : scenario.isActive ? 'Actif' : 'Inactif'}
+          </span>
         </div>
 
         <button
           className="btn btn-secondary btn-sm"
           onClick={handleRun}
-          disabled={loading !== null || runState?.status === 'running'}
+          disabled={runDisabled}
         >
           {loading === 'run' ? (
             <><span className="spinner" style={{ width: 11, height: 11, borderWidth: 2 }} />Execution...</>
-          ) : runState?.status === 'running' ? 'Scenario en cours...' : '> Lancer maintenant'}
+          ) : runState?.status === 'running' ? 'Scenario en cours...' : capability.launchMode === 'unavailable' ? 'Configuration requise' : '> Lancer maintenant'}
         </button>
 
-        {meta.hasWebhook && (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Webhook disponible
-          </span>
-        )}
+        <span style={{ fontSize: 11, color: capability.launchMode === 'unavailable' ? 'var(--negative)' : 'var(--text-muted)' }}>
+          {accessLabel}
+        </span>
       </div>
 
       {toast && (
@@ -258,6 +343,45 @@ function ScenarioCard({ scenario, runState, onToggle, onRun }) {
         </div>
       )}
     </div>
+  )
+}
+
+function ScenarioGroupSection({ groupKey, scenarios, runStates, onToggle, onRun }) {
+  const group = GROUP_META[groupKey] || GROUP_META.other
+  const activeCount = scenarios.filter((scenario) => scenario.isActive).length
+
+  return (
+    <section className="automation-group">
+      <div className="automation-group-header">
+        <div>
+          <div className="automation-group-title-row">
+            <span className="automation-group-badge">{group.badge}</span>
+            <h2 className="automation-group-title">{group.title}</h2>
+            <span className="automation-group-count">{scenarios.length}</span>
+          </div>
+          <p className="automation-group-subtitle">{group.subtitle}</p>
+        </div>
+
+        <div className="automation-group-stats">
+          <span>{activeCount} actifs</span>
+          <span>{scenarios.length - activeCount} inactifs</span>
+        </div>
+      </div>
+
+      <div className="automation-group-divider" />
+
+      <div>
+        {scenarios.map((scenario) => (
+          <ScenarioCard
+            key={scenario.id}
+            scenario={scenario}
+            runState={runStates[scenario.id]}
+            onToggle={onToggle}
+            onRun={onRun}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -409,6 +533,42 @@ export default function Automation() {
     [scenarios]
   )
 
+  const groupedScenarios = useMemo(() => {
+    const groups = GROUP_ORDER.reduce((acc, key) => {
+      acc[key] = []
+      return acc
+    }, {})
+
+    scenarios
+      .slice()
+      .sort((a, b) => {
+        const activeDelta = Number(b.isActive) - Number(a.isActive)
+        if (activeDelta !== 0) return activeDelta
+
+        const dateA = a.lastEdit ? new Date(a.lastEdit).getTime() : 0
+        const dateB = b.lastEdit ? new Date(b.lastEdit).getTime() : 0
+        if (dateB !== dateA) return dateB - dateA
+
+        return (a.name || '').localeCompare(b.name || '', 'fr')
+      })
+      .forEach((scenario) => {
+        const group = inferScenarioGroup(scenario)
+        groups[group] = groups[group] || []
+        groups[group].push(scenarioMap.get(scenario.id) || scenario)
+      })
+
+    return GROUP_ORDER
+      .map((key) => [key, groups[key] || []])
+      .filter(([, items]) => items.length > 0)
+  }, [scenarioMap, scenarios])
+
+  const limitedScenarioIds = useMemo(
+    () => scenarios
+      .filter((scenario) => scenario.launchMode === 'unavailable' || scenario.controlMode === 'unavailable')
+      .map((scenario) => scenario.id),
+    [scenarios]
+  )
+
   const handleToggle = async (scenario) => {
     if (scenario.isActive) {
       await api.deactivateScenario(scenario.id)
@@ -460,21 +620,21 @@ export default function Automation() {
 
   return (
     <div>
-      <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="page-title">Automatisation Make.com</div>
-            <div className="page-subtitle">Pilotage des scenarios BDD2026 - eu1.make.com</div>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={loadScenarios} disabled={loading}>
-            Actualiser
-          </button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button className="btn btn-ghost btn-sm" onClick={loadScenarios} disabled={loading}>
+          Actualiser
+        </button>
       </div>
 
       {error && (
         <div style={{ background: 'var(--neutral-light)', border: '1px solid #F0CC89', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 20, fontSize: 12 }}>
           Backend non demarre : affichage des donnees statiques. Demarrez avec <code>npm run dev:backend</code> et configurez <code>MAKE_API_TOKEN</code>.
+        </div>
+      )}
+
+      {!error && limitedScenarioIds.length > 0 && (
+        <div style={{ background: 'var(--neutral-light)', border: '1px solid #F0CC89', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 20, fontSize: 12 }}>
+          Acces Make limite pour les scenarios <code>{limitedScenarioIds.join(', ')}</code>. Ceux avec webhook restent lancables depuis le dashboard; pour les autres, ajoutez <code>MAKE_WEBHOOK_&#60;SCENARIO_ID&#62;</code> dans <code>backend/.env</code> ou regenerez <code>MAKE_API_TOKEN</code> depuis le bon team.
         </div>
       )}
 
@@ -484,11 +644,12 @@ export default function Automation() {
         ) : scenarios.length === 0 ? (
           <div className="empty-state"><div className="empty-icon">MK</div><div className="empty-text">Aucun scenario trouve</div></div>
         ) : (
-          scenarios.map((scenario) => (
-            <ScenarioCard
-              key={scenario.id}
-              scenario={scenarioMap.get(scenario.id) || scenario}
-              runState={runStates[scenario.id]}
+          groupedScenarios.map(([groupKey, items]) => (
+            <ScenarioGroupSection
+              key={groupKey}
+              groupKey={groupKey}
+              scenarios={items}
+              runStates={runStates}
               onToggle={handleToggle}
               onRun={handleRun}
             />

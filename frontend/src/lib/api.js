@@ -32,7 +32,6 @@ export const api = {
   // Scraping
   scrapeTrustpilot: (body) => req('POST', '/scrape/trustpilot', body),
   scrapeGoogleReviews: (body) => req('POST', '/scrape/google-reviews', body),
-  scrapeReddit: (body) => req('POST', '/scrape/reddit', body),
   scrapeTwitter: (body) => req('POST', '/scrape/twitter', body),
   getScrapeSchedule: () => req('GET', '/scrape/schedule'),
   saveScrapeSchedule: (body) => req('PUT', '/scrape/schedule', body),
@@ -56,7 +55,7 @@ export const api = {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error(err.error || 'Erreur génération PDF')
+      throw new Error(err.error || 'Erreur generation PDF')
     }
     return res.blob()
   }

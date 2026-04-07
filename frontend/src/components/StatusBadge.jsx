@@ -10,7 +10,7 @@ export function SentimentBadge({ value }) {
 }
 
 export function PlatformBadge({ value }) {
-  const icons = { Twitter: 'X', 'Twitter/X': 'X', Trustpilot: 'T', 'Google Reviews': 'G', Reddit: 'R', TikTok: 'T', Instagram: 'I' }
+  const icons = { Twitter: 'X', 'Twitter/X': 'X', Trustpilot: 'T', 'Google Reviews': 'G', TikTok: 'T', Instagram: 'I' }
   return (
     <span className="badge badge-primary" style={{ gap: 5 }}>
       <span>{icons[value] || '.'}</span>

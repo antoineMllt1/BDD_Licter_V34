@@ -61,7 +61,3 @@ function runPythonJsonScript(scriptName, payload) {
 export function runTwikitSearch({ searchTerm, maxItems = 50 }) {
   return runPythonJsonScript('twitter_twikit.py', { searchTerm, maxItems })
 }
-
-export function runRedditUrsSearch({ query, maxItems = 30 }) {
-  return runPythonJsonScript('reddit_urs.py', { query, maxItems })
-}

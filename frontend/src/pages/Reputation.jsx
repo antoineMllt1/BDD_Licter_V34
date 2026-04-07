@@ -6,7 +6,7 @@ import DataTable from '../components/DataTable.jsx'
 import { SentimentBadge, PlatformBadge, RatingStars } from '../components/StatusBadge.jsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from 'recharts'
 
-const COLORS_PIE = { Positive: '#00B887', Negative: '#E84393', Neutral: '#F6A623' }
+const COLORS_PIE = { Positive: '#10B981', Negative: '#F43F5E', Neutral: '#F59E0B' }
 
 export default function Reputation() {
   const [data, setData] = useState([])
@@ -76,20 +76,28 @@ export default function Reputation() {
     { key: 'is_verified', label: 'Vérifié', width: 70, render: v => v ? '✓' : '—' },
   ]
 
-  if (loading) return <div className="loading-wrap"><div className="spinner" /><div className="loading-text">Chargement…</div></div>
+  if (loading) return (
+    <div>
+      <div className="kpi-grid">
+        {[1, 2, 3, 4].map(i => <div key={i} className="skeleton skeleton-kpi" />)}
+      </div>
+      <div className="grid-2" style={{ marginTop: 20 }}>
+        <div className="skeleton skeleton-chart" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="skeleton skeleton-chart" style={{ height: 160 }} />
+          <div className="skeleton skeleton-chart" style={{ height: 120 }} />
+        </div>
+      </div>
+    </div>
+  )
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title">Réputation & Crise</div>
-        <div className="page-subtitle">{stats.total.toLocaleString('fr-FR')} mentions analysées</div>
-      </div>
-
       <div className="kpi-grid">
-        <KPICard label="Mentions Totales" value={stats.total.toLocaleString()} sub="toutes plateformes" icon="◈" color="primary" />
-        <KPICard label="Score de Crise" value={`${stats.crisisScore}%`} sub={`Niveau: ${crisisLevel.label}`} icon="⚠" color={stats.crisisScore > 50 ? 'negative' : stats.crisisScore > 30 ? 'neutral' : 'positive'} />
-        <KPICard label="Engagement Total" value={stats.totalEngagement.toLocaleString()} sub="likes + partages" icon="♥" color="blue" />
-        <KPICard label="Comptes Vérifiés" value={stats.verified} sub={`${Math.round(stats.verified / stats.total * 100)}% des auteurs`} icon="✓" color="neutral" />
+        <KPICard label="Mentions Totales" value={stats.total.toLocaleString()} valueStyle={{ fontVariantNumeric: 'tabular-nums' }} sub="toutes plateformes" icon="◈" color="primary" />
+        <KPICard label="Score de Crise" value={`${stats.crisisScore}%`} valueStyle={{ fontVariantNumeric: 'tabular-nums' }} sub={`Niveau: ${crisisLevel.label}`} icon="⚠" color={stats.crisisScore > 50 ? 'negative' : stats.crisisScore > 30 ? 'neutral' : 'positive'} />
+        <KPICard label="Engagement Total" value={stats.totalEngagement.toLocaleString()} valueStyle={{ fontVariantNumeric: 'tabular-nums' }} sub="likes + partages" icon="♥" color="blue" />
+        <KPICard label="Comptes Vérifiés" value={stats.verified} valueStyle={{ fontVariantNumeric: 'tabular-nums' }} sub={`${Math.round(stats.verified / stats.total * 100)}% des auteurs`} icon="✓" color="neutral" />
       </div>
 
       {/* Crisis Alert Banner */}
@@ -112,10 +120,10 @@ export default function Reputation() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={d => d.slice(5)} interval={6} />
               <YAxis tick={{ fontSize: 10 }} width={28} />
-              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} labelFormatter={l => `Date: ${l}`} />
-              <Bar dataKey="Positive" stackId="a" fill="#00B887" name="Positif" />
-              <Bar dataKey="Neutral" stackId="a" fill="#F6A623" name="Neutre" />
-              <Bar dataKey="Negative" stackId="a" fill="#E84393" name="Négatif" radius={[3,3,0,0]} />
+              <Tooltip contentStyle={{ background: '#fff', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} labelFormatter={l => `Date: ${l}`} />
+              <Bar dataKey="Positive" stackId="a" fill="#10B981" name="Positif" />
+              <Bar dataKey="Neutral" stackId="a" fill="#F59E0B" name="Neutre" />
+              <Bar dataKey="Negative" stackId="a" fill="#F43F5E" name="Négatif" radius={[3,3,0,0]} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
             </BarChart>
           </ResponsiveContainer>
@@ -127,10 +135,10 @@ export default function Reputation() {
               <PieChart>
                 <Pie data={sentimentPie} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3} dataKey="value">
                   {sentimentPie.map((entry) => (
-                    <Cell key={entry.name} fill={entry.name === 'Positif' ? '#00B887' : entry.name === 'Négatif' ? '#E84393' : '#F6A623'} />
+                    <Cell key={entry.name} fill={entry.name === 'Positif' ? '#10B981' : entry.name === 'Négatif' ? '#F43F5E' : '#F59E0B'} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
               </PieChart>
             </ResponsiveContainer>

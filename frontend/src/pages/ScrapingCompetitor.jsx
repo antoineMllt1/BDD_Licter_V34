@@ -6,7 +6,7 @@ import DataTable from '../components/DataTable.jsx'
 import { SentimentBadge, PlatformBadge, RatingStars } from '../components/StatusBadge.jsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, AreaChart, Area } from 'recharts'
 
-const COLORS_PIE = { Positif: '#00B887', Negatif: '#E84393', Neutre: '#F6A623' }
+const COLORS_PIE = { Positif: '#10B981', Negatif: '#F43F5E', Neutre: '#F59E0B' }
 
 export default function ScrapingCompetitor() {
   const [data, setData] = useState([])
@@ -88,7 +88,7 @@ export default function ScrapingCompetitor() {
 
   const tableColumns = [
     { key: 'date', label: 'Date', width: 100, render: v => v ? new Date(v).toLocaleDateString('fr-FR') : '—' },
-    { key: 'brand', label: 'Concurrent', render: v => v ? <span className="badge" style={{ background: '#E1705520', color: '#E17055', fontWeight: 600 }}>{v}</span> : '—' },
+    { key: 'brand', label: 'Concurrent', render: v => v ? <span className="badge" style={{ background: '#F9731620', color: '#F97316', fontWeight: 600 }}>{v}</span> : '—' },
     { key: 'platform', label: 'Plateforme', render: v => <PlatformBadge value={v} /> },
     { key: 'category', label: 'Categorie', render: v => v ? <span className="badge badge-blue">{v}</span> : '—' },
     { key: 'text', label: 'Texte', truncate: true },
@@ -96,15 +96,24 @@ export default function ScrapingCompetitor() {
     { key: 'sentiment', label: 'Sentiment', render: v => <SentimentBadge value={v} /> },
   ]
 
-  if (loading) return <div className="loading-wrap"><div className="spinner" /><div className="loading-text">Chargement...</div></div>
+  if (loading) return (
+    <div style={{ padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ height: 28, borderRadius: 8, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite', width: '40%' }} />
+      <div style={{ height: 16, borderRadius: 6, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite', width: '60%' }} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginTop: 8 }}>
+        {[1,2,3,4].map(i => (
+          <div key={i} style={{ height: 80, borderRadius: 12, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ height: 240, borderRadius: 12, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ height: 240, borderRadius: 12, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+      </div>
+    </div>
+  )
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title">Scraping Concurrents</div>
-        <div className="page-subtitle">Veille concurrentielle scrapee — {data.length.toLocaleString()} enregistrements (table scraping_competitor)</div>
-      </div>
-
       {data.length === 0 ? (
         <div className="card">
           <div className="empty-state" style={{ padding: 60 }}>
@@ -122,7 +131,7 @@ export default function ScrapingCompetitor() {
               <button onClick={() => setBrandFilter('all')} className={`btn btn-sm ${brandFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}>Tous</button>
               {brands.map(b => (
                 <button key={b} onClick={() => setBrandFilter(b)} className={`btn btn-sm ${brandFilter === b ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ borderColor: brandFilter === b ? '#E17055' : undefined, color: brandFilter === b ? '#E17055' : undefined }}
+                  style={{ borderColor: brandFilter === b ? '#F97316' : undefined, color: brandFilter === b ? '#F97316' : undefined }}
                 >{b}</button>
               ))}
             </div>
@@ -142,10 +151,10 @@ export default function ScrapingCompetitor() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={d => d.slice(5)} interval={6} />
                   <YAxis tick={{ fontSize: 10 }} width={28} />
-                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
-                  <Bar dataKey="Positive" stackId="a" fill="#00B887" name="Positif" />
-                  <Bar dataKey="Neutral" stackId="a" fill="#F6A623" name="Neutre" />
-                  <Bar dataKey="Negative" stackId="a" fill="#E84393" name="Negatif" radius={[3,3,0,0]} />
+                  <Tooltip contentStyle={{ background: '#fff', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
+                  <Bar dataKey="Positive" stackId="a" fill="#10B981" name="Positif" />
+                  <Bar dataKey="Neutral" stackId="a" fill="#F59E0B" name="Neutre" />
+                  <Bar dataKey="Negative" stackId="a" fill="#F43F5E" name="Negatif" radius={[3,3,0,0]} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                 </BarChart>
               </ResponsiveContainer>
@@ -160,7 +169,7 @@ export default function ScrapingCompetitor() {
                         <Cell key={entry.name} fill={COLORS_PIE[entry.name] || '#aaa'} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
+                    <Tooltip contentStyle={{ background: '#fff', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -171,7 +180,7 @@ export default function ScrapingCompetitor() {
                   {platformData.slice(0, 5).map(p => (
                     <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--border-light)', fontSize: 12 }}>
                       <span style={{ fontWeight: 500 }}>{p.name}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{p.value}</span>
+                      <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{p.value}</span>
                     </div>
                   ))}
                 </div>
@@ -187,9 +196,9 @@ export default function ScrapingCompetitor() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 10 }} />
                   <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
-                  <Bar dataKey="pos" fill="#00B887" name="Positifs" stackId="a" />
-                  <Bar dataKey="neg" fill="#E84393" name="Negatifs" stackId="a" radius={[0,3,3,0]} />
+                  <Tooltip contentStyle={{ background: '#fff', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
+                  <Bar dataKey="pos" fill="#10B981" name="Positifs" stackId="a" />
+                  <Bar dataKey="neg" fill="#F43F5E" name="Negatifs" stackId="a" radius={[0,3,3,0]} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
                 </BarChart>
               </ResponsiveContainer>
@@ -209,7 +218,7 @@ export default function ScrapingCompetitor() {
             </div>
             <DataTable columns={tableColumns} rows={filtered.slice(0, 50)} emptyMessage="Aucune donnee" />
             {filtered.length > 50 && (
-              <div style={{ padding: '10px 20px', fontSize: 11, color: 'var(--text-muted)', borderTop: '1px solid var(--border-light)' }}>
+              <div style={{ padding: '10px 20px', fontSize: 11, color: 'var(--text-muted)', borderTop: '1px solid var(--border-light)', fontVariantNumeric: 'tabular-nums' }}>
                 Affichage 50/{filtered.length}
               </div>
             )}

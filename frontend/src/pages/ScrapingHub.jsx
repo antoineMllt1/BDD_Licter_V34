@@ -3,11 +3,27 @@ import { api } from '../lib/api.js'
 import { supabase } from '../lib/supabase.js'
 import { StatusBadge } from '../components/StatusBadge.jsx'
 
-const DB_TARGETS = [
-  { value: 'scraping', label: 'Scraping', color: '#6C5CE7', icon: 'G' },
-  { value: 'competitor', label: 'Concurrents', color: '#E17055', icon: 'C' },
-  { value: 'csv', label: 'CSV', color: '#00B894', icon: 'CSV' }
+const DB_TARGETS_REVIEWS = [
+  { value: 'scraping', label: 'Marque', color: 'var(--primary)', icon: 'M' },
+  { value: 'competitor', label: 'Concurrent', color: '#F97316', icon: 'C' },
 ]
+
+const DB_TARGETS_SOCIAL = [
+  { value: 'social', label: 'Marque', color: 'var(--primary)', icon: 'M' },
+  { value: 'social_competitor', label: 'Concurrent', color: '#F97316', icon: 'C' },
+]
+
+// Auto-fill presets per target
+const BRAND_PRESETS = {
+  trustpilot: { brand: 'fnac.com' },
+  google: { query: 'Fnac Darty' },
+  twitter: { searchTerm: 'Fnac Darty' },
+}
+const COMPETITOR_PRESETS = {
+  trustpilot: { brand: 'boulanger.com' },
+  google: { query: 'Boulanger' },
+  twitter: { searchTerm: '@Boulanger_ OR boulanger.com OR "chez Boulanger" OR "magasin Boulanger" OR "Boulanger livraison"' },
+}
 
 const SCRAPERS = [
   {
@@ -15,9 +31,11 @@ const SCRAPERS = [
     name: 'Trustpilot',
     icon: 'T',
     iconBg: '#FFE8D6',
-    desc: 'Extrait les avis Trustpilot directement depuis la source avec deduplication.',
+    desc: 'Avis Trustpilot avec deduplication.',
+    type: 'reviews',
+    defaultTarget: 'scraping',
     massiveLabel: 'Recherche massive',
-    massiveHint: 'Plus de pages, ideal pour un gros remplissage ponctuel.',
+    massiveHint: 'Plus de pages pour un remplissage ponctuel.',
     fields: [
       { key: 'brand', label: 'Domaine Trustpilot', defaultValue: 'fnac.com', placeholder: 'fnac.com' },
       { key: 'maxReviews', label: "Nombre max d'avis", defaultValue: '30', type: 'number', placeholder: '30' }
@@ -29,9 +47,11 @@ const SCRAPERS = [
     name: 'Google Reviews',
     icon: 'G',
     iconBg: '#E8F4FD',
-    desc: 'Scrape Google Maps sur plusieurs villes et remonte les vrais magasins.',
+    desc: 'Google Maps multi-villes, vrais magasins.',
+    type: 'reviews',
+    defaultTarget: 'scraping',
     massiveLabel: 'Recherche massive',
-    massiveHint: 'Balaye beaucoup plus de villes pour nourrir la carte France.',
+    massiveHint: 'Balaye plus de villes pour la carte France.',
     fields: [
       { key: 'query', label: 'Recherche Google', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty' },
       { key: 'maxReviews', label: "Nombre max d'avis", defaultValue: '30', type: 'number', placeholder: '30' }
@@ -43,38 +63,16 @@ const SCRAPERS = [
     name: 'Twitter / X',
     icon: 'X',
     iconBg: '#E8F0FE',
-    desc: 'Scrape les mentions sociales et nettoie avant insertion.',
+    desc: 'Mentions sociales en temps reel.',
+    type: 'social',
+    defaultTarget: 'social',
     massiveLabel: 'Recherche massive',
-    massiveHint: 'Etend le volume cible pour capter davantage de bruit social.',
+    massiveHint: 'Volume elargi pour capter plus de bruit social.',
     fields: [
       { key: 'searchTerm', label: 'Terme de recherche', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty' },
-      { key: 'maxItems', label: 'Nombre max de tweets', defaultValue: '50', type: 'number', placeholder: '50' },
-      {
-        key: 'target',
-        label: 'Table cible (mode CSV)',
-        defaultValue: 'reputation',
-        type: 'select',
-        options: [
-          { value: 'reputation', label: 'Reputation & Crise' },
-          { value: 'benchmark', label: 'Benchmark Marche' }
-        ]
-      }
+      { key: 'maxItems', label: 'Nombre max de tweets', defaultValue: '50', type: 'number', placeholder: '50' }
     ],
     apiFn: (body) => api.scrapeTwitter(body)
-  },
-  {
-    id: 'reddit',
-    name: 'Reddit',
-    icon: 'R',
-    iconBg: '#FFF1E6',
-    desc: 'Recupere les discussions utiles et nettoie automatiquement avant insertion.',
-    massiveLabel: 'Recherche massive',
-    massiveHint: 'Prend un lot beaucoup plus large pour enrichir la base par vagues.',
-    fields: [
-      { key: 'query', label: 'Recherche Reddit', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty' },
-      { key: 'maxItems', label: 'Nombre max de posts', defaultValue: '30', type: 'number', placeholder: '30' }
-    ],
-    apiFn: (body) => api.scrapeReddit(body)
   }
 ]
 
@@ -82,14 +80,16 @@ const SCHEDULE_SCRAPERS = [
   { key: 'trustpilot', label: 'Trustpilot' },
   { key: 'google', label: 'Google Reviews' },
   { key: 'twitter', label: 'Twitter / X' },
-  { key: 'reddit', label: 'Reddit' }
 ]
 
 const SOURCE_TABLE = {
   Trustpilot: 'scraping_brand',
   'Google Reviews': 'scraping_brand',
-  'Twitter/X': 'scraping_brand',
-  Reddit: 'scraping_brand'
+  'Twitter/X': 'social_mentions',
+}
+
+const SOCIAL_COMPETITOR_SOURCE_TABLE = {
+  'Twitter/X': 'social_mentions_competitor',
 }
 
 function withMassiveDefaults(scraperId, params) {
@@ -101,8 +101,6 @@ function withMassiveDefaults(scraperId, params) {
     next.maxReviews = String(Math.max(Number(params.maxReviews) || 0, 240))
   } else if (scraperId === 'twitter') {
     next.maxItems = String(Math.max(Number(params.maxItems) || 0, 250))
-  } else if (scraperId === 'reddit') {
-    next.maxItems = String(Math.max(Number(params.maxItems) || 0, 180))
   }
 
   return next
@@ -117,9 +115,9 @@ function formatLiveTime(timestamp) {
 }
 
 function getEventTone(event) {
-  if (event.level === 'error' || event.type === 'run_failed') return '#FF5C93'
-  if (event.level === 'success' || event.type === 'run_completed') return '#00B894'
-  return '#9B8CFF'
+  if (event.level === 'error' || event.type === 'run_failed') return '#F43F5E'
+  if (event.level === 'success' || event.type === 'run_completed') return '#10B981'
+  return '#818CF8'
 }
 
 function TextModal({ text, onClose }) {
@@ -259,8 +257,8 @@ function TerminalPanel({ events, activeRun, connected, compact = false, title = 
       <div
         ref={logRef}
         style={{
-          background: 'linear-gradient(180deg, #11111A 0%, #171726 100%)',
-          color: '#F3F0FF',
+          background: 'linear-gradient(180deg, #1E1B3A 0%, #252244 100%)',
+          color: '#E8E6F0',
           padding: compact ? 14 : 16,
           minHeight: compact ? 156 : 240,
           maxHeight: compact ? 240 : 300,
@@ -285,14 +283,14 @@ function TerminalPanel({ events, activeRun, connected, compact = false, title = 
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                <span style={{ color: '#8A86B3', fontSize: 10 }}>[{formatLiveTime(event.timestamp)}]</span>
+                <span style={{ color: '#8B8AA0', fontSize: 10 }}>[{formatLiveTime(event.timestamp)}]</span>
                 <span style={{ color: getEventTone(event), fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
                   {event.source || 'Scraper'}
                 </span>
               </div>
-              <div style={{ color: '#F3F0FF', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+              <div style={{ color: '#E8E6F0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                 {event.message}
-                {event.preview && <span style={{ color: '#B9B3E6' }}>{` - ${event.preview}`}</span>}
+                {event.preview && <span style={{ color: '#A5A0D0' }}>{` - ${event.preview}`}</span>}
               </div>
             </div>
           ))
@@ -304,18 +302,27 @@ function TerminalPanel({ events, activeRun, connected, compact = false, title = 
 
 function ScraperCard({ scraper, onStart, onFinish, events, activeRun, connected }) {
   const [params, setParams] = useState(() => Object.fromEntries(scraper.fields.map((field) => [field.key, field.defaultValue])))
-  const [targetDb, setTargetDb] = useState('scraping')
+  const [targetDb, setTargetDb] = useState(scraper.defaultTarget || 'scraping')
   const [massive, setMassive] = useState(false)
   const [status, setStatus] = useState('idle')
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
-  const activeDbInfo = DB_TARGETS.find((db) => db.value === targetDb)
-  const resolvedTable = targetDb === 'scraping'
-    ? 'scraping_brand'
-    : targetDb === 'competitor'
-      ? 'scraping_competitor'
-      : (scraper.id === 'twitter' ? (params.target === 'benchmark' ? 'benchmark_marche' : 'reputation_crise') : 'voix_client_cx')
+  const dbTargets = scraper.type === 'social' ? DB_TARGETS_SOCIAL : DB_TARGETS_REVIEWS
+  const activeDbInfo = dbTargets.find((db) => db.value === targetDb) || dbTargets[0]
+  const isCompetitor = targetDb === 'competitor' || targetDb === 'social_competitor'
+  const resolvedTable = targetDb === 'social' ? 'social_mentions'
+    : targetDb === 'social_competitor' ? 'social_mentions_competitor'
+    : targetDb === 'scraping' ? 'scraping_brand'
+    : targetDb === 'competitor' ? 'scraping_competitor'
+    : 'scraping_brand'
+
+  const handleTargetSwitch = (newTarget) => {
+    setTargetDb(newTarget)
+    const isComp = newTarget === 'competitor' || newTarget === 'social_competitor'
+    const presets = isComp ? COMPETITOR_PRESETS[scraper.id] : BRAND_PRESETS[scraper.id]
+    if (presets) setParams((current) => ({ ...current, ...presets }))
+  }
 
   const handleRun = async () => {
     setStatus('running')
@@ -354,35 +361,30 @@ function ScraperCard({ scraper, onStart, onFinish, events, activeRun, connected 
       <div className="scraper-card-desc">{scraper.desc}</div>
 
       <div style={{ marginBottom: 12 }}>
-        <label className="form-label" style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: 5, display: 'block' }}>
-          Destination
-        </label>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {DB_TARGETS.map((db) => (
+        <div style={{ display: 'flex', gap: 6 }}>
+          {dbTargets.map((db) => (
             <button
               key={db.value}
-              onClick={() => setTargetDb(db.value)}
+              onClick={() => handleTargetSwitch(db.value)}
               style={{
                 flex: 1,
-                padding: '5px 4px',
-                fontSize: 10,
+                padding: '8px 12px',
+                fontSize: 12,
                 border: targetDb === db.value ? `2px solid ${db.color}` : '2px solid var(--border)',
                 borderRadius: 'var(--radius-sm)',
-                background: targetDb === db.value ? `${db.color}12` : 'var(--surface)',
+                background: targetDb === db.value ? `${db.color}10` : 'var(--surface)',
                 color: targetDb === db.value ? db.color : 'var(--text-muted)',
                 fontWeight: targetDb === db.value ? 700 : 500,
                 cursor: 'pointer',
-                textAlign: 'center',
-                lineHeight: 1.3
+                textAlign: 'center'
               }}
             >
-              <div style={{ fontSize: 13 }}>{db.icon}</div>
               {db.label}
             </button>
           ))}
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-          Table cible: <strong style={{ color: activeDbInfo.color }}>{resolvedTable}</strong>
+          {resolvedTable}
         </div>
       </div>
 
@@ -448,6 +450,7 @@ function ScheduleCard() {
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState(null)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     api.getScrapeSchedule()
@@ -501,76 +504,129 @@ function ScheduleCard() {
   }
 
   if (loading || !schedule) {
-    return <div className="scraper-card"><div className="loading-wrap"><div className="spinner" /></div></div>
+    return (
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ padding: '16px 20px', display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ height: 16, borderRadius: 6, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite', width: 120 }} />
+          <div style={{ height: 16, borderRadius: 6, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite', width: 200 }} />
+        </div>
+      </div>
+    )
   }
 
+  const isCompetitor = schedule.targetDb === 'competitor' || schedule.targetDb === 'social_competitor'
+
   return (
-    <div className="scraper-card">
-      <div className="scraper-card-header">
-        <div className="scraper-card-name">
-          <div className="scraper-card-icon" style={{ background: '#EEF6FF', color: 'var(--text)', fontWeight: 700 }}>S</div>
-          Schedule
+    <div className="card" style={{ marginBottom: 20 }}>
+      {/* Compact header bar */}
+      <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: '#EEF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>S</div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Schedule automatique</span>
         </div>
+
+        <button className={`toggle ${schedule.enabled ? 'on' : ''}`} onClick={() => updateRoot('enabled', !schedule.enabled)} />
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          {[
+            { value: 'scraping', compValue: 'competitor', label: 'Marque' },
+            { value: 'competitor', compValue: 'scraping', label: 'Concurrent' },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                const isSocial = schedule.targetDb === 'social' || schedule.targetDb === 'social_competitor'
+                if (opt.value === 'scraping') updateRoot('targetDb', isSocial ? 'social' : 'scraping')
+                else updateRoot('targetDb', isSocial ? 'social_competitor' : 'competitor')
+              }}
+              style={{
+                padding: '4px 12px',
+                fontSize: 11,
+                border: (opt.value === 'scraping' ? !isCompetitor : isCompetitor) ? '2px solid var(--primary)' : '2px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                background: (opt.value === 'scraping' ? !isCompetitor : isCompetitor) ? 'rgba(99,102,241,0.06)' : 'var(--surface)',
+                color: (opt.value === 'scraping' ? !isCompetitor : isCompetitor) ? 'var(--primary)' : 'var(--text-muted)',
+                fontWeight: (opt.value === 'scraping' ? !isCompetitor : isCompetitor) ? 700 : 500,
+                cursor: 'pointer',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {[
+            { label: 'Toutes les heures', value: 60 },
+            { label: 'Chaque matin', value: 1440 },
+            { label: 'Chaque semaine', value: 10080 },
+          ].map((preset) => (
+            <button
+              key={preset.value}
+              onClick={() => updateRoot('intervalMinutes', preset.value)}
+              style={{
+                padding: '4px 10px',
+                fontSize: 10,
+                border: String(schedule.intervalMinutes) === String(preset.value) ? '2px solid #10B981' : '2px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                background: String(schedule.intervalMinutes) === String(preset.value) ? 'rgba(16,185,129,0.06)' : 'var(--surface)',
+                color: String(schedule.intervalMinutes) === String(preset.value) ? '#10B981' : 'var(--text-muted)',
+                fontWeight: String(schedule.intervalMinutes) === String(preset.value) ? 700 : 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
         <StatusBadge status={schedule.enabled ? 'active' : 'inactive'} />
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+            Dernier: {schedule.lastRunAt ? new Date(schedule.lastRunAt).toLocaleString('fr-FR') : 'jamais'}
+          </span>
+          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setExpanded((c) => !c)}>
+            {expanded ? 'Masquer' : 'Configurer'}
+          </button>
+          <button className="btn btn-primary btn-sm" style={{ fontSize: 11 }} onClick={handleSave} disabled={saving}>
+            {saving ? '...' : 'Sauver'}
+          </button>
+          <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={handleRunNow} disabled={running}>
+            {running ? '...' : 'Lancer'}
+          </button>
+        </div>
       </div>
 
-      <div className="scraper-card-desc">
-        Active le scraping automatique de plusieurs sources a intervalle regulier, avec un volume distinct par scraper.
-      </div>
-
-      <div className="form-group" style={{ marginBottom: 10 }}>
-        <label className="form-label">Activer le schedule</label>
-        <button className={`toggle ${schedule.enabled ? 'on' : ''}`} onClick={() => updateRoot('enabled', !schedule.enabled)} style={{ marginTop: 4 }} />
-      </div>
-
-      <div className="form-group" style={{ marginBottom: 10 }}>
-        <label className="form-label">Toutes les X minutes</label>
-        <input className="form-input" type="number" min="5" value={schedule.intervalMinutes} onChange={(event) => updateRoot('intervalMinutes', event.target.value)} />
-      </div>
-
-      <div className="form-group" style={{ marginBottom: 12 }}>
-        <label className="form-label">Destination globale</label>
-        <select className="form-select" value={schedule.targetDb} onChange={(event) => updateRoot('targetDb', event.target.value)}>
-          {DB_TARGETS.map((db) => <option key={db.value} value={db.value}>{db.label}</option>)}
-        </select>
-      </div>
-
-      <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
-        {SCHEDULE_SCRAPERS.map((scraper) => (
-          <div key={scraper.key} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'var(--surface-alt)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>{scraper.label}</div>
-              <button className={`toggle ${schedule.scrapers[scraper.key]?.enabled ? 'on' : ''}`} onClick={() => updateScraper(scraper.key, { enabled: !schedule.scrapers[scraper.key]?.enabled })} />
+      {/* Expandable detail section */}
+      {expanded && (
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+          {SCHEDULE_SCRAPERS.map((scraper) => (
+            <div key={scraper.key} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'var(--surface-alt)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{scraper.label}</div>
+                <button className={`toggle ${schedule.scrapers[scraper.key]?.enabled ? 'on' : ''}`} onClick={() => updateScraper(scraper.key, { enabled: !schedule.scrapers[scraper.key]?.enabled })} />
+              </div>
+              <label className="form-label" style={{ fontSize: 11 }}>Quantite par run</label>
+              <input
+                className="form-input"
+                type="number"
+                min="1"
+                max="300"
+                value={schedule.scrapers[scraper.key]?.amount ?? 30}
+                onChange={(event) => updateScraper(scraper.key, { amount: event.target.value })}
+              />
             </div>
-            <label className="form-label" style={{ fontSize: 11 }}>Quantite par run</label>
-            <input
-              className="form-input"
-              type="number"
-              min="1"
-              max="300"
-              value={schedule.scrapers[scraper.key]?.amount ?? 30}
-              onChange={(event) => updateScraper(scraper.key, { amount: event.target.value })}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="scraper-card-footer">
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ flex: 1 }}>
-          {saving ? 'Sauvegarde...' : 'Enregistrer'}
-        </button>
-        <button className="btn btn-secondary" onClick={handleRunNow} disabled={running}>
-          {running ? 'Lancement...' : 'Lancer maintenant'}
-        </button>
-      </div>
-
-      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
-        Dernier run: {schedule.lastRunAt ? new Date(schedule.lastRunAt).toLocaleString('fr-FR') : 'jamais'}
-      </div>
+          ))}
+        </div>
+      )}
 
       {message && (
-        <div style={{ marginTop: 10, background: message.type === 'success' ? 'var(--positive-light)' : 'var(--negative-light)', border: `1px solid ${message.type === 'success' ? '#B2E8D8' : '#F8BBD9'}`, borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: 12, color: message.type === 'success' ? 'var(--positive)' : 'var(--negative)' }}>
-          {message.text}
+        <div style={{ padding: '0 20px 12px' }}>
+          <div style={{ background: message.type === 'success' ? 'var(--positive-light)' : 'var(--negative-light)', border: `1px solid ${message.type === 'success' ? '#B2E8D8' : '#F8BBD9'}`, borderRadius: 'var(--radius-sm)', padding: '6px 12px', fontSize: 11, color: message.type === 'success' ? 'var(--positive)' : 'var(--negative)' }}>
+            {message.text}
+          </div>
         </div>
       )}
     </div>
@@ -646,17 +702,8 @@ export default function ScrapingHub() {
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title">Hub Scraping</div>
-        <div className="page-subtitle">Collecte des donnees, suivi live des runs et alimentation massive ponctuelle.</div>
-      </div>
-
-      <div style={{ background: 'var(--neutral-light)', border: '1px solid #F0CC89', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 20, fontSize: 12, color: 'var(--text)' }}>
-        <strong>Mode massif :</strong> a utiliser ponctuellement pour remplir la base en gros volume. Chaque carte affiche son terminal live juste en dessous du formulaire.
-      </div>
-
+      <ScheduleCard />
       <div className="scraper-grid">
-        <ScheduleCard />
         {SCRAPERS.map((scraper) => (
           <div key={scraper.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <ScraperCard
@@ -685,7 +732,11 @@ export default function ScrapingHub() {
         </div>
 
         {logsLoading ? (
-          <div className="loading-wrap" style={{ padding: 30 }}><div className="spinner" /></div>
+          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[100, 75, 90, 60, 80].map((w, i) => (
+              <div key={i} style={{ height: 14, borderRadius: 6, background: 'var(--border-light)', animation: 'pulse 1.4s ease-in-out infinite', width: `${w}%` }} />
+            ))}
+          </div>
         ) : logs.length === 0 ? (
           <div className="empty-state"><div className="empty-icon">[]</div><div className="empty-text">Aucun scraping lance</div></div>
         ) : (
@@ -709,7 +760,7 @@ export default function ScrapingHub() {
                       <td style={{ fontSize: 11 }}>{log.started_at ? new Date(log.started_at).toLocaleString('fr-FR') : '-'}</td>
                       <td><span className="badge badge-primary">{log.source}</span></td>
                       <td><StatusBadge status={log.status} /></td>
-                      <td style={{ fontWeight: 600 }}>{log.records_added ?? 0}</td>
+                      <td style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{log.records_added ?? 0}</td>
                       <td style={{ fontSize: 11 }}>{log.completed_at ? new Date(log.completed_at).toLocaleString('fr-FR') : '-'}</td>
                       <td><span className="text-truncate" style={{ maxWidth: 160, fontSize: 11, color: 'var(--negative)' }}>{log.error_message || '-'}</span></td>
                       <td>

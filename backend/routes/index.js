@@ -6,7 +6,6 @@ import {
   streamScrapeEvents
 } from '../controllers/scraper.controller.js'
 import { scrapeTwitterApify } from '../controllers/twitter-apify.controller.js'
-import { scrapeRedditUrs } from '../controllers/reddit-urs.controller.js'
 import {
   fetchScrapeSchedule,
   saveScrapeSchedule,
@@ -26,7 +25,6 @@ const router = Router()
 // Scraping
 router.post('/scrape/trustpilot', scrapeTrustpilot)
 router.post('/scrape/google-reviews', scrapeGoogleReviews)
-router.post('/scrape/reddit', scrapeRedditUrs)
 router.post('/scrape/twitter', scrapeTwitterApify)
 router.get('/scrape/logs', getScrapingLogs)
 router.get('/scrape/stream', streamScrapeEvents)

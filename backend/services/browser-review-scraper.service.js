@@ -60,6 +60,18 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+const GOOGLE_NATIONAL_RETAILERS = ['fnac', 'darty', 'boulanger']
+const GOOGLE_QUERY_STOPWORDS = new Set([
+  'electromenager',
+  'multimedia',
+  'magasin',
+  'magasins',
+  'google',
+  'reviews',
+  'review',
+  'france'
+])
+
 function normalizeUiText(value) {
   return `${value || ''}`
     .normalize('NFD')
@@ -72,6 +84,40 @@ function normalizeUiText(value) {
 
 function reportProgress(onProgress, payload) {
   onProgress?.(payload)
+}
+
+function extractGoogleQueryKeywords(query) {
+  const normalized = normalizeUiText(query)
+  if (!normalized) return []
+
+  const retailerKeywords = GOOGLE_NATIONAL_RETAILERS.filter(keyword => normalized.includes(keyword))
+  if (retailerKeywords.length) return retailerKeywords
+
+  return normalized
+    .split(/\s+/)
+    .filter(token => token.length > 2 && !GOOGLE_QUERY_STOPWORDS.has(token))
+}
+
+function buildGoogleLabelMatcher(query) {
+  const keywords = extractGoogleQueryKeywords(query)
+
+  return (label) => {
+    const normalized = normalizeUiText(label)
+    if (!normalized) return false
+    if (!keywords.length) return true
+    return keywords.some(keyword => normalized.includes(keyword))
+  }
+}
+
+function isGoogleNationalRetailQuery(query) {
+  const normalized = normalizeUiText(query)
+  if (!normalized) return false
+  return GOOGLE_NATIONAL_RETAILERS.some(keyword => normalized.includes(keyword))
+}
+
+function resolveSeededGoogleCity(term) {
+  const normalizedTerm = normalizeUiText(term)
+  return GOOGLE_CITY_SEEDS_MASSIVE.find(city => normalizedTerm.endsWith(normalizeUiText(city))) || null
 }
 
 function parseRatingLabel(label) {
@@ -377,7 +423,9 @@ export async function scrapeTrustpilotDirect({ brand, maxReviews = 30, massive =
   }
 }
 
-async function ensureGooglePlaceOpen(page) {
+async function ensureGooglePlaceOpen(page, query) {
+  const matchesPlaceLabel = buildGoogleLabelMatcher(query)
+
   await page.waitForSelector('body')
   await dismissCommonBanners(page)
   await wait(1500)
@@ -393,7 +441,7 @@ async function ensureGooglePlaceOpen(page) {
       if (refreshedReviewCount > 0) return
     }
 
-    const openedPlace = await clickHandleByMatcher(page, '[role="article"], a[href*="/place/"]', label => /fnac|darty/i.test(label) || !label)
+    const openedPlace = await clickHandleByMatcher(page, '[role="article"], a[href*="/place/"]', label => matchesPlaceLabel(label) || !label)
     if (openedPlace) {
       await wait(3000)
       await clickHandleByMatcher(page, 'button, [role="button"]', label => /\bavis\b|reviews/i.test(label))
@@ -407,7 +455,7 @@ function buildGoogleSearchTerms(query, massive = false) {
   if (!cleanedQuery) return []
 
   const cities = massive ? GOOGLE_CITY_SEEDS_MASSIVE : GOOGLE_CITY_SEEDS
-  if (/fnac|darty/i.test(cleanedQuery)) {
+  if (isGoogleNationalRetailQuery(cleanedQuery)) {
     return cities.map(city => `${cleanedQuery} ${city}`)
   }
 
@@ -523,12 +571,29 @@ async function scrollGoogleReviews(page, maxReviews) {
   }
 }
 
-async function extractGoogleReviews(page) {
-  return page.evaluate(() => {
+async function extractGoogleReviews(page, query) {
+  const keywords = extractGoogleQueryKeywords(query)
+
+  return page.evaluate((matcherKeywords) => {
+    const normalize = value => `${value || ''}`
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+
+    const matchesPlace = value => {
+      const normalized = normalize(value)
+      if (!normalized) return false
+      if (!matcherKeywords?.length) return true
+      return matcherKeywords.some(keyword => normalized.includes(keyword))
+    }
+
     const placeName =
       [...document.querySelectorAll('h1, h2, h3, button[aria-label], [role="tab"]')]
         .map(node => (node.innerText || node.getAttribute('aria-label') || '').trim())
-        .find(text => text.length > 2 && text.length < 90 && /fnac|darty/i.test(text) && !/^avis$|^results?$|^résultats?$/i.test(text))
+        .find(text => text.length > 2 && text.length < 90 && matchesPlace(text) && !/^avis$|^results?$|^résultats?$/i.test(text))
       || null
 
     const address =
@@ -568,7 +633,7 @@ async function extractGoogleReviews(page) {
 
       return { author, ratingLabel, date, text, location }
     })
-  })
+  }, keywords)
 }
 
 export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massive = false, onProgress = null, excludeTextKeys = null }) {
@@ -592,7 +657,7 @@ export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massiv
 
     for (let index = 0; index < searchTerms.length && collected.length < maxReviews; index += 1) {
       const term = searchTerms[index]
-      const seededCity = GOOGLE_CITY_SEEDS.find(city => term.endsWith(city)) || null
+      const seededCity = resolveSeededGoogleCity(term)
       reportProgress(onProgress, {
         message: `Recherche Google ${index + 1}/${searchTerms.length}: ${term}`,
         searchTerm: term,
@@ -612,7 +677,7 @@ export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massiv
 
       const candidateLabels = await listRelevantPlaceLabels(page, query)
       if (!candidateLabels.length) {
-        await ensureGooglePlaceOpen(page)
+        await ensureGooglePlaceOpen(page, query)
       }
 
       for (let candidateIndex = 0; candidateIndex < maxPlaceCandidatesPerTerm && collected.length < maxReviews; candidateIndex += 1) {
@@ -623,7 +688,7 @@ export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massiv
         const opened = await openRelevantPlaceAtIndex(page, query, candidateIndex)
         if (!opened) {
           if (candidateIndex === 0) {
-            await ensureGooglePlaceOpen(page)
+            await ensureGooglePlaceOpen(page, query)
           }
           break
         }
@@ -678,7 +743,7 @@ export async function scrapeGoogleReviewsDirect({ query, maxReviews = 30, massiv
             : targetForStore
 
           await scrollGoogleReviews(page, reviewLoadTarget)
-          const rawReviews = await extractGoogleReviews(page)
+          const rawReviews = await extractGoogleReviews(page, query)
           if (!rawReviews.length) {
             reportProgress(onProgress, {
               message: `${details.placeName}: aucun avis detecte dans le panneau Google Maps`,

@@ -8,8 +8,8 @@ import DataTable from '../components/DataTable.jsx'
 import { SentimentBadge, PlatformBadge, RatingStars } from '../components/StatusBadge.jsx'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-const COLORS_PIE = { Positif: '#00B887', Negatif: '#E84393', Neutre: '#F6A623' }
-const SENTIMENT_COLORS = { Positive: '#00B887', Neutral: '#F6A623', Negative: '#E84393' }
+const COLORS_PIE = { Positif: '#10B981', Negatif: '#F43F5E', Neutre: '#F59E0B' }
+const SENTIMENT_COLORS = { Positive: '#10B981', Neutral: '#F59E0B', Negative: '#F43F5E' }
 const CITY_ALIASES = [
   ['Boulogne', 'Boulogne-Billancourt'],
   ['Beaugrenelle', 'Paris'],
@@ -84,7 +84,44 @@ function getStoreLabel(row) {
 }
 
 function getStoreCityName(row) {
-  return row.store_city || resolveCityName(row.store_address || row.location || '')
+  return row.store_city || resolveCityName([row.store_name, row.store_address, row.location].filter(Boolean).join(' '))
+}
+
+function toFiniteNumber(value) {
+  const parsed = Number(`${value ?? ''}`.replace(',', '.'))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseCoordinatesFromSourceUrl(sourceUrl) {
+  const raw = `${sourceUrl || ''}`.trim()
+  if (!raw) return null
+
+  const dataMatch = raw.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)
+  if (dataMatch) {
+    const latitude = toFiniteNumber(dataMatch[1])
+    const longitude = toFiniteNumber(dataMatch[2])
+    if (latitude !== null && longitude !== null) return [longitude, latitude]
+  }
+
+  const atMatch = raw.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/)
+  if (atMatch) {
+    const latitude = toFiniteNumber(atMatch[1])
+    const longitude = toFiniteNumber(atMatch[2])
+    if (latitude !== null && longitude !== null) return [longitude, latitude]
+  }
+
+  return null
+}
+
+function getStoreCoordinates(row, city) {
+  const longitude = toFiniteNumber(row.store_longitude ?? row.longitude ?? row.lng ?? row.lon)
+  const latitude = toFiniteNumber(row.store_latitude ?? row.latitude ?? row.lat)
+  if (longitude !== null && latitude !== null) return [longitude, latitude]
+
+  const sourceUrlCoordinates = parseCoordinatesFromSourceUrl(row.source_url)
+  if (sourceUrlCoordinates) return sourceUrlCoordinates
+
+  return city ? CITY_COORDINATES[city] || null : null
 }
 
 function getStoreLogo(storeName) {
@@ -105,6 +142,7 @@ function FranceStoreMap({ stores, selectedStoreKey, onSelect }) {
   const mapContainerRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef([])
+  const [mapReady, setMapReady] = useState(false)
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
@@ -114,34 +152,32 @@ function FranceStoreMap({ stores, selectedStoreKey, onSelect }) {
       style: {
         version: 8,
         sources: {
-          osm: {
+          carto: {
             type: 'raster',
             tiles: [
-              'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-              'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-              'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+              'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'
             ],
             tileSize: 256,
-            attribution: 'OpenStreetMap'
+            attribution: 'CartoDB'
           }
         },
         layers: [
           {
-            id: 'osm',
+            id: 'carto',
             type: 'raster',
-            source: 'osm'
+            source: 'carto'
           }
         ]
       },
       center: [2.2, 46.4],
-      zoom: 4.9,
-      minZoom: 4.2,
-      maxZoom: 13,
-      cooperativeGestures: true
+      zoom: 5.2,
+      minZoom: 4.5,
+      maxZoom: 14
     })
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
+    map.on('load', () => setMapReady(true))
 
     return () => {
       markersRef.current.forEach(marker => marker.remove())
@@ -153,85 +189,38 @@ function FranceStoreMap({ stores, selectedStoreKey, onSelect }) {
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !mapReady) return
 
     markersRef.current.forEach(marker => marker.remove())
     markersRef.current = []
 
     stores.forEach(store => {
       const isSelected = selectedStoreKey === store.storeKey
-      const fill = store.negRate >= 0.6 ? '#E84393' : store.negRate >= 0.35 ? '#F6A623' : '#00B887'
-      const logo = getStoreLogo(store.store)
-      const markerElement = document.createElement('button')
-      markerElement.type = 'button'
-      markerElement.style.width = '54px'
-      markerElement.style.height = '54px'
-      markerElement.style.padding = '0'
-      markerElement.style.border = '0'
-      markerElement.style.background = 'transparent'
+      const fill = store.negRate >= 0.6 ? '#F43F5E' : store.negRate >= 0.35 ? '#F59E0B' : '#10B981'
+      const markerElement = document.createElement('div')
+      markerElement.style.width = isSelected ? '22px' : '16px'
+      markerElement.style.height = isSelected ? '22px' : '16px'
+      markerElement.style.borderRadius = '999px'
+      markerElement.style.background = fill
+      markerElement.style.border = isSelected ? '3px solid #fff' : '2px solid #fff'
+      markerElement.style.boxSizing = 'border-box'
+      markerElement.style.boxShadow = isSelected ? `0 0 0 5px ${fill}30, 0 2px 8px rgba(0,0,0,.15)` : `0 2px 6px rgba(0,0,0,.12)`
       markerElement.style.cursor = 'pointer'
-      markerElement.style.display = 'flex'
-      markerElement.style.alignItems = 'center'
-      markerElement.style.justifyContent = 'center'
-      markerElement.style.position = 'relative'
-      markerElement.onclick = event => {
+      markerElement.style.pointerEvents = 'auto'
+      markerElement.style.transition = 'all 180ms ease'
+      markerElement.addEventListener('click', event => {
         event.preventDefault()
         onSelect(store.storeKey)
-      }
-
-      const haloElement = document.createElement('span')
-      haloElement.style.position = 'absolute'
-      haloElement.style.width = '50px'
-      haloElement.style.height = '50px'
-      haloElement.style.borderRadius = '999px'
-      haloElement.style.background = isSelected ? 'rgba(108,92,231,0.18)' : 'rgba(31,29,58,0.08)'
-      haloElement.style.boxShadow = isSelected ? '0 10px 26px rgba(108,92,231,0.24)' : '0 8px 18px rgba(31,29,58,0.12)'
-
-      const badgeElement = document.createElement('span')
-      badgeElement.style.position = 'relative'
-      badgeElement.style.width = '34px'
-      badgeElement.style.height = '34px'
-      badgeElement.style.borderRadius = '11px'
-      badgeElement.style.background = logo.bg
-      badgeElement.style.border = isSelected ? '2px solid #6C5CE7' : '2px solid rgba(255,255,255,0.96)'
-      badgeElement.style.boxSizing = 'border-box'
-      badgeElement.style.display = 'flex'
-      badgeElement.style.alignItems = 'center'
-      badgeElement.style.justifyContent = 'center'
-      badgeElement.style.padding = '5px'
-
-      const logoElement = document.createElement('img')
-      logoElement.src = logo.src
-      logoElement.alt = logo.alt
-      logoElement.style.width = '100%'
-      logoElement.style.height = '100%'
-      logoElement.style.objectFit = 'contain'
-      logoElement.style.borderRadius = '7px'
-
-      const statusElement = document.createElement('span')
-      statusElement.style.position = 'absolute'
-      statusElement.style.right = '-3px'
-      statusElement.style.bottom = '-3px'
-      statusElement.style.width = '12px'
-      statusElement.style.height = '12px'
-      statusElement.style.borderRadius = '999px'
-      statusElement.style.background = fill
-      statusElement.style.border = '2px solid #FFFFFF'
-      statusElement.style.boxSizing = 'border-box'
-
-      badgeElement.appendChild(logoElement)
-      badgeElement.appendChild(statusElement)
-      markerElement.appendChild(haloElement)
-      markerElement.appendChild(badgeElement)
+      })
 
       const popup = new maplibregl.Popup({ offset: 18, closeButton: false })
         .setHTML(`
-          <div style="font-family: Inter, sans-serif; min-width: 180px;">
-            <div style="font-weight:700; color:#1F1D3A; margin-bottom:4px;">${store.store}</div>
-            <div style="font-size:12px; color:#7B78A8; margin-bottom:8px;">${store.city}</div>
-            <div style="display:flex; justify-content:space-between; font-size:12px; color:#1F1D3A;">
+          <div style="font-family: 'DM Sans', sans-serif; min-width: 180px;">
+            <div style="font-weight:700; color:#1E1B3A; margin-bottom:4px;">${store.store}</div>
+            <div style="font-size:12px; color:#8B8AA0; margin-bottom:8px;">${store.city}</div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#1E1B3A;">
               <span>${store.total} avis</span>
-              <span style="font-weight:700; color:${fill};">${Math.round(store.negRate * 100)}% négatifs</span>
+              <span style="font-weight:700; color:${fill};">${Math.round(store.negRate * 100)}% neg.</span>
             </div>
           </div>
         `)
@@ -264,7 +253,7 @@ function FranceStoreMap({ stores, selectedStoreKey, onSelect }) {
   }
 
   return (
-    <div style={{ position: 'relative', height: 480, borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border-light)', background: '#F4F1FF' }}>
+    <div style={{ position: 'relative', height: 480, borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg)' }}>
       <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0 }} />
       <div style={{ position: 'absolute', left: 14, bottom: 14, display: 'flex', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.92)', boxShadow: 'var(--shadow)' }}>
         {['Positive', 'Neutral', 'Negative'].map(key => (
@@ -308,15 +297,15 @@ function StorePanel({ store }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 16 }}>
         <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-alt)' }}>
           <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Avis</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginTop: 4 }}>{store.total}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{store.total}</div>
         </div>
         <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-alt)' }}>
           <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Négatifs</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--negative)', marginTop: 4 }}>{Math.round(store.negRate * 100)}%</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--negative)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{Math.round(store.negRate * 100)}%</div>
         </div>
         <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-alt)' }}>
           <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Note moy.</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginTop: 4 }}>{store.avgRating ? `${store.avgRating}/5` : '—'}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{store.avgRating ? `${store.avgRating}/5` : '—'}</div>
         </div>
       </div>
 
@@ -440,16 +429,17 @@ export default function ScrapingBrand() {
       .filter(row => row.platform === 'Google Reviews')
       .forEach(row => {
         const city = getStoreCityName(row)
-        const coordinates = city ? CITY_COORDINATES[city] : null
-        if (!city || !coordinates) return
+        const coordinates = getStoreCoordinates(row, city)
+        if (!coordinates) return
 
-        const store = getStoreLabel(row) || city
-        const key = `${store}-${city}`
+        const store = getStoreLabel(row) || city || 'Magasin'
+        const resolvedCity = city || store
+        const key = `${store}-${resolvedCity}`
         if (!stores[key]) {
           stores[key] = {
             storeKey: key,
             store,
-            city,
+            city: resolvedCity,
             coordinates,
             address: row.store_address || null,
             total: 0,
@@ -521,32 +511,54 @@ export default function ScrapingBrand() {
     { key: 'sentiment', label: 'Sentiment', render: value => <SentimentBadge value={value} /> }
   ]
 
-  if (loading) return <div className="loading-wrap"><div className="spinner" /><div className="loading-text">Chargement...</div></div>
+  if (loading) return (
+    <div>
+      <div className="kpi-grid">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="skeleton skeleton-kpi" style={{ height: 96, borderRadius: 'var(--radius)' }} />
+        ))}
+      </div>
+      <div className="skeleton skeleton-chart" style={{ height: 260, borderRadius: 'var(--radius)', marginBottom: 20 }} />
+      <div className="skeleton skeleton-chart" style={{ height: 220, borderRadius: 'var(--radius)', marginBottom: 20 }} />
+      <div className="skeleton" style={{ height: 320, borderRadius: 'var(--radius)' }} />
+    </div>
+  )
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title">Scraping Marque</div>
-        <div className="page-subtitle">Données scrapées — {stats.total.toLocaleString()} enregistrements (table scraping_brand)</div>
-      </div>
-
       {stats.total === 0 ? (
         <div className="card">
-          <div className="empty-state" style={{ padding: 60 }}>
-            <div className="empty-icon">◻</div>
-            <div className="empty-text">Aucune donnée scrapée</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>Lancez un scraping depuis le Hub Scraping avec la destination "Scraping"</div>
+          <div className="empty-state" style={{ padding: 72, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.35 }}>
+              <circle cx="24" cy="24" r="20" stroke="var(--text-muted)" strokeWidth="2" />
+              <path d="M16 24h16M24 16v16" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Aucune donnée Google Reviews disponible</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 360, textAlign: 'center', lineHeight: 1.6 }}>Lancez un scraping depuis le Hub Scraping avec la destination <strong>scraping_brand</strong> pour alimenter ce tableau de bord.</div>
           </div>
         </div>
       ) : (
         <>
           <div className="kpi-grid">
-            <KPICard label="Mentions Scrapées" value={stats.total.toLocaleString()} sub="base scraping marque" icon="◉" color="primary" />
-            <KPICard label="Score de Crise" value={`${stats.crisisScore}%`} sub={`${stats.neg} négatives`} icon="⚠" color={stats.crisisScore > 50 ? 'negative' : stats.crisisScore > 30 ? 'neutral' : 'positive'} />
-            <KPICard label="Note Moyenne" value={stats.rated > 0 ? `${stats.avg}/5` : '—'} sub={`${stats.rated} notes`} icon="★" color="neutral" />
-            <KPICard label="Avis Positifs" value={stats.pos} sub={`${stats.total > 0 ? Math.round((stats.pos / stats.total) * 100) : 0}%`} icon="↑" color="positive" />
-            <KPICard label="Magasins Couverts" value={storeInsights.coveredStores || '—'} sub={`${storeInsights.coveredCities} villes via Google Reviews`} icon="⌖" color="blue" />
-            <KPICard label="Magasin le plus fragile" value={storeInsights.mostCritical?.store || '—'} sub={storeInsights.mostCritical ? `${Math.round(storeInsights.mostCritical.negRate * 100)}% négatifs` : 'en attente de localisation'} icon="◎" color={storeInsights.mostCritical?.negRate > 0.5 ? 'negative' : 'neutral'} />
+            {[
+              { label: 'Mentions Scrapées', value: stats.total.toLocaleString(), sub: 'base scraping marque', icon: '◉', color: 'primary' },
+              { label: 'Score de Crise', value: `${stats.crisisScore}%`, sub: `${stats.neg} négatives`, icon: '⚠', color: stats.crisisScore > 50 ? 'negative' : stats.crisisScore > 30 ? 'neutral' : 'positive' },
+              { label: 'Note Moyenne', value: stats.rated > 0 ? `${stats.avg}/5` : '—', sub: `${stats.rated} notes`, icon: '★', color: 'neutral' },
+              { label: 'Avis Positifs', value: stats.pos, sub: `${stats.total > 0 ? Math.round((stats.pos / stats.total) * 100) : 0}%`, icon: '↑', color: 'positive' },
+              { label: 'Magasins Couverts', value: storeInsights.coveredStores || '—', sub: `${storeInsights.coveredCities} villes via Google Reviews`, icon: '⌖', color: 'blue' },
+              { label: 'Magasin le plus fragile', value: storeInsights.mostCritical?.store || '—', sub: storeInsights.mostCritical ? `${Math.round(storeInsights.mostCritical.negRate * 100)}% négatifs` : 'en attente de localisation', icon: '◎', color: storeInsights.mostCritical?.negRate > 0.5 ? 'negative' : 'neutral' }
+            ].map((kpi, index) => (
+              <div key={kpi.label} className="fade-in-up" style={{ animationDelay: `${index * 80}ms` }}>
+                <KPICard
+                  label={kpi.label}
+                  value={kpi.value}
+                  sub={kpi.sub}
+                  icon={kpi.icon}
+                  color={kpi.color}
+                  valueStyle={{ fontSize: 30, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}
+                />
+              </div>
+            ))}
           </div>
 
           <div className="grid-2" style={{ marginBottom: 20 }}>
@@ -556,10 +568,10 @@ export default function ScrapingBrand() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={value => value.slice(5)} interval={6} />
                   <YAxis tick={{ fontSize: 10 }} width={28} />
-                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
-                  <Bar dataKey="Positive" stackId="a" fill="#00B887" name="Positif" />
-                  <Bar dataKey="Neutral" stackId="a" fill="#F6A623" name="Neutre" />
-                  <Bar dataKey="Negative" stackId="a" fill="#E84393" name="Négatif" radius={[3, 3, 0, 0]} />
+                  <Tooltip contentStyle={{ background: '#FFFFFF', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
+                  <Bar dataKey="Positive" stackId="a" fill="#10B981" name="Positif" />
+                  <Bar dataKey="Neutral" stackId="a" fill="#F59E0B" name="Neutre" />
+                  <Bar dataKey="Negative" stackId="a" fill="#F43F5E" name="Négatif" radius={[3, 3, 0, 0]} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                 </BarChart>
               </ResponsiveContainer>
@@ -572,7 +584,7 @@ export default function ScrapingBrand() {
                     <Pie data={sentimentPie} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3} dataKey="value">
                       {sentimentPie.map(entry => <Cell key={entry.name} fill={COLORS_PIE[entry.name] || '#aaa'} />)}
                     </Pie>
-                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
+                    <Tooltip contentStyle={{ background: '#FFFFFF', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -605,7 +617,7 @@ export default function ScrapingBrand() {
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
                     <XAxis dataKey="month" tick={{ fontSize: 10 }} tickFormatter={value => value.slice(2)} />
                     <YAxis domain={[0, 5]} tick={{ fontSize: 10 }} width={28} />
-                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} formatter={value => [`${value}/5`, 'Note moyenne']} />
+                    <Tooltip contentStyle={{ background: '#FFFFFF', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} formatter={value => [`${value}/5`, 'Note moyenne']} />
                     <Area type="monotone" dataKey="avg" stroke="var(--positive)" strokeWidth={2} fill="url(#ratingGradSB)" name="Note" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -617,7 +629,7 @@ export default function ScrapingBrand() {
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 10 }} />
                     <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 10 }} />
-                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
+                    <Tooltip contentStyle={{ background: '#FFFFFF', border: '1px solid #ECEEF6', borderRadius: 8, fontSize: 12, color: '#1E1B3A' }} />
                     <Bar dataKey="pos" fill="var(--positive)" name="Positifs" stackId="a" />
                     <Bar dataKey="neg" fill="var(--negative)" name="Négatifs" stackId="a" radius={[0, 3, 3, 0]} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
@@ -706,7 +718,7 @@ export default function ScrapingBrand() {
                   <div style={{ width: '100%', padding: '12px 14px', textAlign: 'left', background: selectedStoreKey === store.storeKey ? 'var(--primary-light)' : 'var(--surface-alt)' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{store.store}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{store.city}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
                       <span>{store.total} avis</span>
                       <span style={{ color: store.negRate > 0.5 ? 'var(--negative)' : 'var(--text-muted)', fontWeight: 700 }}>{Math.round(store.negRate * 100)}% négatifs</span>
                     </div>

@@ -18,8 +18,10 @@ function TextModal({ text, onClose }) {
 }
 
 const TABLES = [
-  { value: 'scraping_brand', label: 'Scraping Marque', color: '#6C5CE7', sources: ['Trustpilot', 'Google Reviews', 'Twitter/X'], group: 'scraping' },
-  { value: 'scraping_competitor', label: 'Scraping Concurrents', color: '#E17055', sources: ['Trustpilot', 'Google Reviews', 'Twitter/X'], group: 'scraping' },
+  { value: 'social_mentions', label: 'Social Marque', color: '#1DA1F2', sources: ['Twitter/X'], group: 'social' },
+  { value: 'social_mentions_competitor', label: 'Social Concurrent', color: '#FF4500', sources: ['Twitter/X'], group: 'social' },
+  { value: 'scraping_brand', label: 'Scraping Marque', color: 'var(--primary)', sources: ['Trustpilot', 'Google Reviews'], group: 'scraping' },
+  { value: 'scraping_competitor', label: 'Scraping Concurrents', color: '#F97316', sources: ['Trustpilot', 'Google Reviews'], group: 'scraping' },
   { value: 'voix_client_cx', label: 'CSV - Exp. Client', color: 'var(--neutral)', sources: ['Trustpilot', 'Google Reviews'], group: 'csv' },
   { value: 'reputation_crise', label: 'CSV - Réputation', color: 'var(--negative)', sources: ['Twitter/X', 'Make.com'], group: 'csv' },
   { value: 'benchmark_marche', label: 'CSV - Benchmark', color: 'var(--blue)', sources: ['Twitter/X', 'Make.com'], group: 'csv' },
@@ -111,10 +113,6 @@ export default function ScrapingResults() {
   return (
     <div>
       {modalText && <TextModal text={modalText} onClose={() => setModalText(null)} />}
-      <div className="page-header">
-        <div className="page-title">Résultats de Scraping</div>
-        <div className="page-subtitle">Données collectées par source et table Supabase</div>
-      </div>
 
       {/* Logs récents */}
       <div className="card" style={{ marginBottom: 20 }}>

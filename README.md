@@ -62,6 +62,10 @@ A comprehensive business data dashboard and automation platform built with React
    # Backend ENV
    APIFY_API_TOKEN=your_apify_token_here
    MAKE_API_TOKEN=your_make_api_token_here
+   MAKE_TEAM_ID=your_optional_make_team_id_here
+   MAKE_ORGANIZATION_ID=your_optional_make_organization_id_here
+   # Optional fallback when a Make token no longer has scenario rights:
+   # MAKE_WEBHOOK_5085608=https://hook.eu1.make.com/your-webhook
    ANTHROPIC_API_KEY=your_anthropic_api_key_here
    SUPABASE_URL=https://ggmkprimqfgojdptakdh.supabase.co
    SUPABASE_SERVICE_KEY=your_supabase_service_role_key_here
@@ -73,6 +77,8 @@ A comprehensive business data dashboard and automation platform built with React
    - **Make.com API Token**: For workflow automation
    - **Anthropic API Key**: For AI-powered analysis
    - **Supabase Service Key**: For database operations
+
+   If Make responds with `Insufficient rights`, regenerate `MAKE_API_TOKEN` from the workspace/team that owns the scenarios, or configure a scenario webhook with `MAKE_WEBHOOK_<SCENARIO_ID>`.
 
 ## Running the Application
 

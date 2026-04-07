@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.49.4",
     "d3-geo": "^3.1.1",
     "date-fns": "^4.1.0",
+    "leaflet": "^1.9.4",
     "maplibre-gl": "^5.22.0",
     "papaparse": "^5.5.2",
     "react": "^19.1.0",

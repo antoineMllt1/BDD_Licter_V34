@@ -3,8 +3,8 @@ import Papa from 'papaparse'
 import { supabase } from '../lib/supabase.js'
 
 const TABLES = [
-  { value: 'scraping_brand', label: 'Scraping Marque', color: '#6C5CE7' },
-  { value: 'scraping_competitor', label: 'Scraping Concurrents', color: '#E17055' },
+  { value: 'scraping_brand', label: 'Scraping Marque', color: 'var(--primary)' },
+  { value: 'scraping_competitor', label: 'Scraping Concurrents', color: '#F97316' },
   { value: 'reputation_crise', label: 'Réputation & Crise', color: 'var(--negative)' },
   { value: 'benchmark_marche', label: 'Benchmark Marché', color: 'var(--blue)' },
   { value: 'voix_client_cx', label: 'Expérience Client', color: 'var(--neutral)' },
@@ -125,11 +125,6 @@ export default function DataManager() {
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title">Import / Export</div>
-        <div className="page-subtitle">Gestion des données CSV ↔ Supabase</div>
-      </div>
-
       {/* Export Section */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-header">

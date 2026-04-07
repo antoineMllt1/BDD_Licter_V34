@@ -3,7 +3,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scrapeTrustpilot, scrapeGoogleReviews } from '../controllers/scraper.controller.js'
 import { scrapeTwitterApify } from '../controllers/twitter-apify.controller.js'
-import { scrapeRedditUrs } from '../controllers/reddit-urs.controller.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -18,7 +17,6 @@ const DEFAULT_CONFIG = {
     trustpilot: { enabled: true, amount: 30, brand: 'fnac.com' },
     google: { enabled: true, amount: 30, query: 'Fnac Darty' },
     twitter: { enabled: true, amount: 50, searchTerm: 'Fnac Darty', target: 'reputation' },
-    reddit: { enabled: false, amount: 30, query: 'Fnac Darty' }
   },
   lastRunAt: null
 }
@@ -43,7 +41,6 @@ function normalizeConfig(input = {}) {
       trustpilot: { ...DEFAULT_CONFIG.scrapers.trustpilot, ...(input.scrapers?.trustpilot || {}) },
       google: { ...DEFAULT_CONFIG.scrapers.google, ...(input.scrapers?.google || {}) },
       twitter: { ...DEFAULT_CONFIG.scrapers.twitter, ...(input.scrapers?.twitter || {}) },
-      reddit: { ...DEFAULT_CONFIG.scrapers.reddit, ...(input.scrapers?.reddit || {}) }
     }
   }
 
@@ -111,14 +108,6 @@ async function runEnabledScrapers() {
         searchTerm: scrapers.twitter.searchTerm,
         maxItems: scrapers.twitter.amount,
         target: scrapers.twitter.target,
-        targetDb
-      })
-    }
-
-    if (scrapers.reddit.enabled) {
-      await invokeHandler(scrapeRedditUrs, {
-        query: scrapers.reddit.query,
-        maxItems: scrapers.reddit.amount,
         targetDb
       })
     }

@@ -3,10 +3,10 @@ export default function ChartCard({ title, icon, meta, children, actions }) {
     <div className="chart-card">
       <div className="chart-card-header">
         <div className="chart-card-title">
-          {icon && <span>{icon}</span>}
+          {icon && <span className="chart-card-icon">{icon}</span>}
           {title}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="chart-card-tools">
           {meta && <span className="chart-card-meta">{meta}</span>}
           {actions}
         </div>

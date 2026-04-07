@@ -515,62 +515,11 @@ export async function scrapeGoogleReviews(req, res) {
   }
 }
 
-export async function scrapeReddit(req, res) {
-  const { query = 'Fnac Darty', maxItems = 30, targetDb = 'scraping', massive = false } = req.body
-  const table = resolveTable(targetDb, 'voix_client_cx')
-  const runId = createScrapeRun({ source: 'Reddit', mode: massive ? 'massive' : 'standard', targetDb, query })
-  await logScraping('Reddit', 'running')
-  try {
-    const results = await linkupSearch(`"${query}" site:reddit.com (avis OR experience OR probleme OR déçu OR satisfait OR commande OR livraison OR SAV)`, 'deep')
-    const requestedMax = parseInt(maxItems, 10) || 30
-    const max = massive ? Math.max(requestedMax, 180) : requestedMax
-
-    const rawRows = results.slice(0, max).map(result => {
-      const cleanedText = cleanText(result.content || result.name || '')
-      return {
-        review_id: hashId('rd', `${result.url || query}-${cleanedText.slice(0, 100)}`),
-        platform: 'Reddit',
-        brand: targetDb === 'competitor' ? query : 'Fnac Darty',
-        category: null,
-        text: cleanedText,
-        date: new Date().toISOString(),
-        rating: null,
-        sentiment: null,
-        user_followers: 0,
-        is_verified: false,
-        language: 'fr',
-        location: null,
-        share_count: 0,
-        reply_count: 0
-      }
-    })
-
-    const rows = deduplicateRows(rawRows).filter(row => row.text?.length > 20).filter(row => isUsefulScrapedText(row.text))
-    emitRunEvent(runId, 'Reddit', `${rows.length} posts propres retenus apres nettoyage`, { level: 'success' })
-
-    const { insertedCount } = await upsertRowsAndCount(table, rows)
-
-    await logScraping('Reddit', 'completed', insertedCount)
-    completeScrapeRun({ runId, source: 'Reddit', inserted: insertedCount, table })
-    res.json({
-      success: true,
-      inserted: insertedCount,
-      scanned: rows.length,
-      table,
-      message: `${insertedCount} nouveaux posts Reddit importes sur ${rows.length} trouves -> ${table}`
-    })
-  } catch (err) {
-    await logScraping('Reddit', 'error', 0, err.message)
-    completeScrapeRun({ runId, source: 'Reddit', error: err.message })
-    res.status(500).json({ success: false, error: err.message })
-  }
-}
-
 export async function scrapeTwitter(req, res) {
   const { searchTerm = 'Fnac Darty', maxItems = 50, target = 'reputation', targetDb = 'scraping' } = req.body
   await logScraping('Twitter/X', 'running')
   try {
-    const results = await linkupSearch(`"${searchTerm}" (avis OR problème OR déçu OR satisfait OR commande OR livraison OR SAV) site:twitter.com OR site:x.com OR site:reddit.com`, 'deep')
+    const results = await linkupSearch(`"${searchTerm}" (avis OR problème OR déçu OR satisfait OR commande OR livraison OR SAV) site:twitter.com OR site:x.com`, 'deep')
     const max = parseInt(maxItems)
 
     // If targeting scraping/competitor DB, use the unified scraping tables
@@ -579,16 +528,14 @@ export async function scrapeTwitter(req, res) {
       ? resolveTable(targetDb, 'reputation_crise')
       : (target === 'benchmark' ? 'benchmark_marche' : 'reputation_crise')
 
-    let rows
+    let rawRows
     if (useScrapeDb) {
-      // Unified schema for scraping_brand / scraping_competitor
-      // sentiment + category seront enrichis par Make.com / OpenAI
-      rows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
+      rawRows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
         review_id: hashId('tw', r.url + r.content?.slice(0, 80)),
         platform: 'Twitter/X',
         brand: targetDb === 'competitor' ? searchTerm : 'Fnac Darty',
         category: null,
-        text: decodeHtml(r.content || r.name || ''),
+        text: cleanText(r.content || r.name || ''),
         date: new Date().toISOString(),
         rating: null,
         sentiment: null,
@@ -600,12 +547,12 @@ export async function scrapeTwitter(req, res) {
         reply_count: 0
       }))
     } else if (table === 'reputation_crise') {
-      rows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
+      rawRows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
         review_id: hashId('tw', r.url + r.content?.slice(0, 80)),
         platform: 'Twitter/X',
         brand: 'Fnac Darty',
         post_type: 'Social Mention',
-        text: decodeHtml(r.content || r.name || ''),
+        text: cleanText(r.content || r.name || ''),
         date: new Date().toISOString(),
         rating: null,
         likes: 0,
@@ -618,12 +565,12 @@ export async function scrapeTwitter(req, res) {
         reply_count: 0
       }))
     } else {
-      rows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
+      rawRows = results.slice(0, max).filter(r => isReviewContent(r.content)).map(r => ({
         review_id: hashId('tw', r.url + r.content?.slice(0, 80)),
         platform: 'Twitter/X',
         entity_analyzed: searchTerm.toLowerCase().includes('boulanger') ? 'Boulanger' : 'Fnac Darty',
         topic: 'Mention',
-        text: decodeHtml(r.content || r.name || ''),
+        text: cleanText(r.content || r.name || ''),
         date: new Date().toISOString(),
         target_brand_vs_competitor: searchTerm.toLowerCase().includes('boulanger') ? 'Competitor' : 'Brand',
         sentiment_detected: null,
@@ -636,15 +583,12 @@ export async function scrapeTwitter(req, res) {
       }))
     }
 
-    rows = rows.filter(r => r.text?.length > 20)
+    const rows = deduplicateRows(rawRows).filter(r => r.text?.length > 20)
 
-    const { error } = await supabase
-      .from(table)
-      .upsert(rows, { onConflict: 'review_id', ignoreDuplicates: true })
-    if (error) throw error
+    const { insertedCount } = await upsertRowsAndCount(table, rows)
 
-    await logScraping('Twitter/X', 'completed', rows.length)
-    res.json({ success: true, inserted: rows.length, table, message: `${rows.length} mentions importées → ${table}` })
+    await logScraping('Twitter/X', 'completed', insertedCount)
+    res.json({ success: true, inserted: insertedCount, scanned: rows.length, table, message: `${insertedCount} mentions importees -> ${table}` })
   } catch (err) {
     await logScraping('Twitter/X', 'error', 0, err.message)
     res.status(500).json({ success: false, error: err.message })

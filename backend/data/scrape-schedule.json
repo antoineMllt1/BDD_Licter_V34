@@ -18,11 +18,6 @@
       "amount": 50,
       "searchTerm": "Fnac Darty",
       "target": "reputation"
-    },
-    "reddit": {
-      "enabled": false,
-      "amount": 30,
-      "query": "Fnac Darty"
     }
   },
   "lastRunAt": null
