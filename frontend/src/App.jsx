@@ -6,6 +6,7 @@ import Header from './components/Header.jsx'
 
 const ExecutiveCockpit = lazy(() => import('./pages/ExecutiveCockpit.jsx'))
 const WarRoom = lazy(() => import('./pages/WarRoom.jsx'))
+const SocialMedia = lazy(() => import('./pages/SocialMedia.jsx'))
 const BattleMatrix = lazy(() => import('./pages/BattleMatrix.jsx'))
 const VoiceOfCustomer = lazy(() => import('./pages/VoiceOfCustomer.jsx'))
 const Stores = lazy(() => import('./pages/Stores.jsx'))
@@ -38,6 +39,7 @@ export default function App() {
                 <Route path="/" element={<ExecutiveCockpit />} />
                 <Route path="/overview" element={<Navigate to="/" replace />} />
                 <Route path="/war-room" element={<WarRoom />} />
+                <Route path="/social" element={<SocialMedia />} />
                 <Route path="/battle-matrix" element={<BattleMatrix />} />
                 <Route path="/voix-du-client" element={<VoiceOfCustomer />} />
                 <Route path="/magasins" element={<Stores />} />
@@ -45,7 +47,6 @@ export default function App() {
 
                 <Route path="/alertes" element={<Navigate to="/war-room" replace />} />
                 <Route path="/reputation" element={<Navigate to="/war-room" replace />} />
-                <Route path="/social" element={<Navigate to="/war-room" replace />} />
                 <Route path="/benchmark" element={<Navigate to="/battle-matrix" replace />} />
                 <Route path="/cx" element={<Navigate to="/voix-du-client" replace />} />
                 <Route path="/verbatims" element={<Navigate to="/voix-du-client" replace />} />

@@ -18,11 +18,15 @@ const BRAND_PRESETS = {
   trustpilot: { brand: 'fnac.com' },
   google: { query: 'Fnac Darty' },
   twitter: { searchTerm: 'Fnac Darty' },
+  tiktok: { searchTerm: 'Fnac Darty' },
+  facebook: { searchTerm: 'Fnac Darty' },
 }
 const COMPETITOR_PRESETS = {
   trustpilot: { brand: 'boulanger.com' },
   google: { query: 'Boulanger' },
   twitter: { searchTerm: '@Boulanger_ OR boulanger.com OR "chez Boulanger" OR "magasin Boulanger" OR "Boulanger livraison"' },
+  tiktok: { searchTerm: 'Boulanger' },
+  facebook: { searchTerm: 'Boulanger' },
 }
 
 const SCRAPERS = [
@@ -73,6 +77,38 @@ const SCRAPERS = [
       { key: 'maxItems', label: 'Nombre max de tweets', defaultValue: '50', type: 'number', placeholder: '50' }
     ],
     apiFn: (body) => api.scrapeTwitter(body)
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok',
+    icon: 'TT',
+    iconBg: '#FFE8F5',
+    desc: 'Videos et commentaires TikTok via Apify.',
+    type: 'social',
+    defaultTarget: 'social',
+    massiveLabel: 'Recherche massive',
+    massiveHint: 'Elargit le nombre de videos recuperees.',
+    fields: [
+      { key: 'searchTerm', label: 'Terme de recherche', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty' },
+      { key: 'maxItems', label: 'Nombre max de videos', defaultValue: '50', type: 'number', placeholder: '50' }
+    ],
+    apiFn: (body) => api.scrapeTikTok(body)
+  },
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    icon: 'FB',
+    iconBg: '#E8F0FE',
+    desc: 'Posts de pages publiques Facebook via Apify.',
+    type: 'social',
+    defaultTarget: 'social',
+    massiveLabel: 'Recherche massive',
+    massiveHint: 'Elargit le nombre de posts recuperes.',
+    fields: [
+      { key: 'searchTerm', label: 'Marque (auto-resolve URL)', defaultValue: 'Fnac Darty', placeholder: 'Fnac Darty ou Boulanger' },
+      { key: 'maxItems', label: 'Nombre max de posts', defaultValue: '30', type: 'number', placeholder: '30' }
+    ],
+    apiFn: (body) => api.scrapeFacebook(body)
   }
 ]
 
@@ -80,6 +116,8 @@ const SCHEDULE_SCRAPERS = [
   { key: 'trustpilot', label: 'Trustpilot' },
   { key: 'google', label: 'Google Reviews' },
   { key: 'twitter', label: 'Twitter / X' },
+  { key: 'tiktok', label: 'TikTok' },
+  { key: 'facebook', label: 'Facebook' },
 ]
 
 const SOURCE_TABLE = {
@@ -101,6 +139,10 @@ function withMassiveDefaults(scraperId, params) {
     next.maxReviews = String(Math.max(Number(params.maxReviews) || 0, 240))
   } else if (scraperId === 'twitter') {
     next.maxItems = String(Math.max(Number(params.maxItems) || 0, 250))
+  } else if (scraperId === 'tiktok') {
+    next.maxItems = String(Math.max(Number(params.maxItems) || 0, 200))
+  } else if (scraperId === 'facebook') {
+    next.maxItems = String(Math.max(Number(params.maxItems) || 0, 150))
   }
 
   return next

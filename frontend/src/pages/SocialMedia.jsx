@@ -7,12 +7,22 @@ import { SentimentBadge, PlatformBadge } from '../components/StatusBadge.jsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, AreaChart, Area } from 'recharts'
 
 const SENTIMENT_COLORS = { Positive: '#10B981', Negative: '#F43F5E', Neutral: '#F59E0B' }
-const PLATFORM_COLORS = { 'Twitter/X': '#1DA1F2' }
+const PLATFORM_COLORS = {
+  'Twitter/X': '#1DA1F2',
+  'TikTok': '#FF0050',
+  'Facebook': '#1877F2',
+  'Reddit': '#FF4500',
+}
 const BRAND_COLOR = 'var(--primary)'
 const COMPETITOR_COLOR = '#F97316'
+const ALL_PLATFORMS = ['Twitter/X', 'TikTok', 'Facebook', 'Reddit']
 
 function computeStats(rows) {
-  const twitter = rows.filter(r => r.platform === 'Twitter/X').length
+  const byPlatform = {}
+  ALL_PLATFORMS.forEach(p => { byPlatform[p] = rows.filter(r => r.platform === p).length })
+  const twitter = byPlatform['Twitter/X']
+  const tiktok = byPlatform['TikTok']
+  const facebook = byPlatform['Facebook']
   const neg = rows.filter(r => r.sentiment === 'Negative').length
   const pos = rows.filter(r => r.sentiment === 'Positive').length
   const neu = rows.filter(r => r.sentiment === 'Neutral').length
@@ -25,7 +35,7 @@ function computeStats(rows) {
   const avgFollowers = rows.length > 0 ? Math.round(rows.reduce((s, r) => s + (r.author_followers || 0), 0) / rows.length) : 0
   const negPct = rows.length > 0 ? Math.round((neg / rows.length) * 100) : 0
   const enrichPct = rows.length > 0 ? Math.round((enriched / rows.length) * 100) : 0
-  return { twitter, neg, pos, neu, enriched, totalLikes, totalShares, totalReplies, totalViews, verified, avgFollowers, negPct, enrichPct, total: rows.length }
+  return { twitter, tiktok, facebook, byPlatform, neg, pos, neu, enriched, totalLikes, totalShares, totalReplies, totalViews, verified, avgFollowers, negPct, enrichPct, total: rows.length }
 }
 
 export default function SocialMedia() {
@@ -68,8 +78,11 @@ export default function SocialMedia() {
     filtered.forEach(r => {
       if (!r.date) return
       const d = r.date.slice(0, 10)
-      if (!byDay[d]) byDay[d] = { date: d, 'Twitter/X': 0 }
-      if (r.platform) byDay[d][r.platform]++
+      if (!byDay[d]) {
+        byDay[d] = { date: d }
+        ALL_PLATFORMS.forEach(p => { byDay[d][p] = 0 })
+      }
+      if (r.platform && byDay[d][r.platform] !== undefined) byDay[d][r.platform]++
     })
     return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date)).slice(-60)
   }, [filtered])
@@ -211,8 +224,8 @@ export default function SocialMedia() {
         <>
           {/* Side-by-side KPIs */}
           <div className="kpi-grid">
-            <KPICard label="Mentions Marque" value={brandStats.total.toLocaleString()} sub={`${brandStats.twitter} X`} color="primary" />
-            <KPICard label="Mentions Concurrent" value={compStats.total.toLocaleString()} sub={`${compStats.twitter} X`} color="neutral" />
+            <KPICard label="Mentions Marque" value={brandStats.total.toLocaleString()} sub={`X: ${brandStats.twitter} · TT: ${brandStats.tiktok} · FB: ${brandStats.facebook}`} color="primary" />
+            <KPICard label="Mentions Concurrent" value={compStats.total.toLocaleString()} sub={`X: ${compStats.twitter} · TT: ${compStats.tiktok} · FB: ${compStats.facebook}`} color="neutral" />
             <KPICard label="% Negatif Marque" value={`${brandStats.negPct}%`} sub={`${brandStats.neg} mentions`} color={brandStats.negPct > 30 ? 'negative' : 'positive'} />
             <KPICard label="% Negatif Concurrent" value={`${compStats.negPct}%`} sub={`${compStats.neg} mentions`} color={compStats.negPct > 30 ? 'negative' : 'positive'} />
             <KPICard label="Engagement Marque" value={(brandStats.totalLikes + brandStats.totalShares).toLocaleString()} sub={`${brandStats.totalLikes} likes`} color="primary" />
@@ -292,6 +305,9 @@ export default function SocialMedia() {
             <select value={platformFilter} onChange={e => { setPlatformFilter(e.target.value); setPage(0) }}>
               <option value="all">Toutes les plateformes</option>
               <option value="Twitter/X">Twitter / X</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Reddit">Reddit</option>
             </select>
             <select value={sentimentFilter} onChange={e => { setSentimentFilter(e.target.value); setPage(0) }}>
               <option value="all">Tous les sentiments</option>
@@ -306,12 +322,12 @@ export default function SocialMedia() {
 
           {/* KPIs */}
           <div className="kpi-grid">
-            <KPICard label="Mentions totales" value={activeStats.total.toLocaleString()} sub={`${activeStats.twitter} X`} color="primary" />
-            <KPICard label="Engagement total" value={(activeStats.totalLikes + activeStats.totalShares + activeStats.totalReplies).toLocaleString()} sub={`${activeStats.totalLikes.toLocaleString()} likes · ${activeStats.totalShares.toLocaleString()} partages`} color="blue" />
+            <KPICard label="Mentions totales" value={activeStats.total.toLocaleString()} sub={`X: ${activeStats.twitter} · TikTok: ${activeStats.tiktok} · FB: ${activeStats.facebook}`} color="primary" />
+            <KPICard label="Engagement total" value={(activeStats.totalLikes + activeStats.totalShares + activeStats.totalReplies).toLocaleString()} sub={`${activeStats.totalLikes.toLocaleString()} likes · ${activeStats.totalViews.toLocaleString()} vues`} color="blue" />
             <KPICard label="Sentiment negatif" value={activeStats.total > 0 ? `${activeStats.negPct}%` : '—'} sub={`${activeStats.neg} mentions negatives`} color={activeStats.negPct > 30 ? 'negative' : 'neutral'} />
             <KPICard label="Enrichissement IA" value={`${activeStats.enrichPct}%`} sub={`${activeStats.enriched} / ${activeStats.total} traites`} color={activeStats.enrichPct > 80 ? 'positive' : activeStats.enrichPct > 40 ? 'neutral' : 'negative'} />
             <KPICard label="Comptes verifies" value={activeStats.verified} sub={`Followers moy. ${activeStats.avgFollowers.toLocaleString()}`} color="primary" />
-            <KPICard label="Vues totales" value={activeStats.totalViews.toLocaleString()} sub={`${activeStats.totalReplies.toLocaleString()} reponses`} color="blue" />
+            <KPICard label="Vues TikTok + videos" value={activeStats.totalViews.toLocaleString()} sub={`${activeStats.totalReplies.toLocaleString()} reponses`} color="blue" />
           </div>
 
           {/* Charts Row 1 */}
@@ -323,7 +339,9 @@ export default function SocialMedia() {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => v.slice(5)} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="Twitter/X" stackId="1" stroke={PLATFORM_COLORS['Twitter/X']} fill={PLATFORM_COLORS['Twitter/X']} fillOpacity={0.4} />
+                  {ALL_PLATFORMS.map(p => (
+                    <Area key={p} type="monotone" dataKey={p} stackId="1" stroke={PLATFORM_COLORS[p]} fill={PLATFORM_COLORS[p]} fillOpacity={0.4} />
+                  ))}
                   <Legend />
                 </AreaChart>
               </ResponsiveContainer>
@@ -365,7 +383,7 @@ export default function SocialMedia() {
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
                   <Tooltip />
-                  <Bar dataKey="followers" fill={PLATFORM_COLORS['Twitter/X']} radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="followers" fill="var(--primary)" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -387,7 +405,7 @@ export default function SocialMedia() {
                   <tbody>
                     {topAuthors.map((a, i) => (
                       <tr key={i}>
-                        <td style={{ fontWeight: 500 }}>{a.platform === 'Twitter/X' ? `@${a.name}` : a.name}</td>
+                        <td style={{ fontWeight: 500 }}>{['Twitter/X', 'TikTok'].includes(a.platform) ? `@${a.name}` : a.name}</td>
                         <td><PlatformBadge value={a.platform} /></td>
                         <td>{a.mentions}</td>
                         <td>{a.followers.toLocaleString()}</td>

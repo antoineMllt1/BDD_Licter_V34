@@ -6,6 +6,8 @@ import {
   streamScrapeEvents
 } from '../controllers/scraper.controller.js'
 import { scrapeTwitterApify } from '../controllers/twitter-apify.controller.js'
+import { scrapeTikTok } from '../controllers/tiktok-apify.controller.js'
+import { scrapeFacebook } from '../controllers/facebook-apify.controller.js'
 import {
   fetchScrapeSchedule,
   saveScrapeSchedule,
@@ -26,6 +28,8 @@ const router = Router()
 router.post('/scrape/trustpilot', scrapeTrustpilot)
 router.post('/scrape/google-reviews', scrapeGoogleReviews)
 router.post('/scrape/twitter', scrapeTwitterApify)
+router.post('/scrape/tiktok', scrapeTikTok)
+router.post('/scrape/facebook', scrapeFacebook)
 router.get('/scrape/logs', getScrapingLogs)
 router.get('/scrape/stream', streamScrapeEvents)
 router.get('/scrape/schedule', fetchScrapeSchedule)

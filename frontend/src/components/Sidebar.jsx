@@ -6,6 +6,7 @@ const NAV = [
     items: [
       { to: '/', label: 'Cockpit' },
       { to: '/war-room', label: 'Crise' },
+      { to: '/social', label: 'Social Media' },
       { to: '/battle-matrix', label: 'Concurrence' },
       { to: '/voix-du-client', label: 'Clients' },
       { to: '/magasins', label: 'Magasins' },

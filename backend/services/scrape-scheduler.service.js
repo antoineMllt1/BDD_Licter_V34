@@ -3,6 +3,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scrapeTrustpilot, scrapeGoogleReviews } from '../controllers/scraper.controller.js'
 import { scrapeTwitterApify } from '../controllers/twitter-apify.controller.js'
+import { scrapeTikTok } from '../controllers/tiktok-apify.controller.js'
+import { scrapeFacebook } from '../controllers/facebook-apify.controller.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -22,6 +24,8 @@ const DEFAULT_CONFIG = {
     trustpilot: { enabled: true, amount: 30, brand: 'fnac.com' },
     google: { enabled: true, amount: 30, query: 'Fnac Darty' },
     twitter: { enabled: true, amount: 50, searchTerm: 'Fnac Darty', target: 'reputation' },
+    tiktok: { enabled: false, amount: 50, searchTerm: 'Fnac Darty', targetDb: 'social' },
+    facebook: { enabled: false, amount: 30, searchTerm: 'Fnac Darty', targetDb: 'social' },
   },
   lastRunAt: null
 }
@@ -46,6 +50,8 @@ function normalizeConfig(input = {}) {
       trustpilot: { ...DEFAULT_CONFIG.scrapers.trustpilot, ...(input.scrapers?.trustpilot || {}) },
       google: { ...DEFAULT_CONFIG.scrapers.google, ...(input.scrapers?.google || {}) },
       twitter: { ...DEFAULT_CONFIG.scrapers.twitter, ...(input.scrapers?.twitter || {}) },
+      tiktok: { ...DEFAULT_CONFIG.scrapers.tiktok, ...(input.scrapers?.tiktok || {}) },
+      facebook: { ...DEFAULT_CONFIG.scrapers.facebook, ...(input.scrapers?.facebook || {}) },
     }
   }
 
@@ -129,6 +135,22 @@ async function runEnabledScrapers() {
         maxItems: scrapers.twitter.amount,
         target: scrapers.twitter.target,
         targetDb
+      })
+    }
+
+    if (scrapers.tiktok?.enabled) {
+      await invokeHandler(scrapeTikTok, {
+        searchTerm: scrapers.tiktok.searchTerm,
+        maxItems: scrapers.tiktok.amount,
+        targetDb: scrapers.tiktok.targetDb || 'social'
+      })
+    }
+
+    if (scrapers.facebook?.enabled) {
+      await invokeHandler(scrapeFacebook, {
+        searchTerm: scrapers.facebook.searchTerm,
+        maxItems: scrapers.facebook.amount,
+        targetDb: scrapers.facebook.targetDb || 'social'
       })
     }
 
