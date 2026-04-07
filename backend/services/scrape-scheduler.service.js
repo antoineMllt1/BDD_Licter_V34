@@ -6,7 +6,12 @@ import { scrapeTwitterApify } from '../controllers/twitter-apify.controller.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const DATA_DIR = path.join(__dirname, '..', 'data')
+const IS_SERVERLESS = Boolean(process.env.VERCEL)
+const DATA_DIR = process.env.SCRAPE_SCHEDULE_DIR
+  ? path.resolve(process.env.SCRAPE_SCHEDULE_DIR)
+  : IS_SERVERLESS
+    ? path.join('/tmp', 'licter-scrape-schedule')
+    : path.join(__dirname, '..', 'data')
 const CONFIG_PATH = path.join(DATA_DIR, 'scrape-schedule.json')
 
 const DEFAULT_CONFIG = {
@@ -57,8 +62,23 @@ function normalizeConfig(input = {}) {
 }
 
 function persistConfig(config) {
-  ensureDataDir()
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
+  try {
+    ensureDataDir()
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
+  } catch (error) {
+    console.warn('Unable to persist scrape schedule config:', error.message)
+  }
+}
+
+function loadPersistedConfig() {
+  try {
+    ensureDataDir()
+    if (!fs.existsSync(CONFIG_PATH)) return null
+    return normalizeConfig(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')))
+  } catch (error) {
+    console.warn('Unable to load scrape schedule config:', error.message)
+    return null
+  }
 }
 
 function invokeHandler(handler, body) {
@@ -128,7 +148,7 @@ function clearSchedule() {
 
 function applySchedule() {
   clearSchedule()
-  if (!state?.enabled) return
+  if (!state?.enabled || IS_SERVERLESS) return
 
   timer = setInterval(() => {
     runEnabledScrapers().catch(err => {
@@ -138,9 +158,10 @@ function applySchedule() {
 }
 
 export function initializeScrapeScheduler() {
-  ensureDataDir()
-  if (fs.existsSync(CONFIG_PATH)) {
-    state = normalizeConfig(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')))
+  const persisted = loadPersistedConfig()
+
+  if (persisted) {
+    state = persisted
   } else {
     state = normalizeConfig(DEFAULT_CONFIG)
     persistConfig(state)
@@ -152,7 +173,11 @@ export function initializeScrapeScheduler() {
 
 export function getScrapeSchedule() {
   if (!state) initializeScrapeScheduler()
-  return cloneConfig(state)
+  return {
+    ...cloneConfig(state),
+    runtimeMode: IS_SERVERLESS ? 'manual_only' : 'persistent',
+    supportsBackgroundScheduler: !IS_SERVERLESS
+  }
 }
 
 export function updateScrapeSchedule(nextConfig) {

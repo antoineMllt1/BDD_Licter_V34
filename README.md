@@ -104,7 +104,42 @@ npm run dev:frontend
 ```bash
 npm run build
 ```
-This builds the frontend for production.
+This installs the frontend and backend sub-dependencies, then builds the frontend for production.
+
+## Vercel Deployment
+
+The repository is now Vercel-ready from the root:
+
+- the frontend is built from `frontend/`
+- the static output is served from `frontend/dist`
+- the backend is exposed through Vercel serverless functions under `/api`
+- SPA routes fall back to `index.html`
+
+### Vercel Project Settings
+
+- **Framework Preset**: `Other`
+- **Root Directory**: repository root
+- **Build Command**: `npm run build`
+- **Output Directory**: `frontend/dist`
+
+### Vercel Environment Variables
+
+Add these in the Vercel dashboard:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_KEY`
+- `ANTHROPIC_API_KEY`
+- `MAKE_API_TOKEN` if you use Make.com actions
+- `MAKE_TEAM_ID` and `MAKE_ORGANIZATION_ID` if your Make API setup needs them
+- `LINKUP_API_KEY` if you use review scraping
+- `APIFY_API_TOKEN` and `APIFY_TWITTER_ACTOR_ID` if you use X/Twitter scraping
+
+### Serverless Notes
+
+- `/api/*` now runs as Vercel serverless functions
+- the COMEX PDF route works in serverless mode
+- the scraping scheduler is **manual-only** on Vercel: long-running in-memory intervals are not kept alive between invocations
+- scheduler config is stored in ephemeral runtime storage unless you wire it to a durable store later
 
 ## Project Structure
 
