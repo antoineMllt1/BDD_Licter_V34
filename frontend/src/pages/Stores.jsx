@@ -614,10 +614,10 @@ export default function Stores() {
           { label: 'Lancer la collecte', to: '/scraping', kind: 'ghost' },
         ]}
         stats={[
-          { label: 'Magasins couverts', value: visibleSummary.coveredStores.toLocaleString('fr-FR'), sub: `${visibleSummary.coveredCities} villes | ${visibleSummary.mappedStores} geolocalises` },
-          { label: 'Note reseau', value: visibleSummary.networkRating !== null ? `${visibleSummary.networkRating}/5` : 'n/a', sub: `${visibleSummary.totalReviews} avis Google Reviews` },
-          { label: 'Magasins a risque', value: visibleSummary.atRiskStores.toLocaleString('fr-FR'), sub: 'points de vente a rattraper' },
-          { label: 'Backlog local', value: visibleSummary.backlog.toLocaleString('fr-FR'), sub: `${allTimeSummary.coveredStores} magasins en base | ${windowSummary.coveredStores} en fenetre active` },
+          { label: 'Magasins visibles', value: visibleSummary.coveredStores.toLocaleString('fr-FR'), sub: 'Source prioritaire: scraping_brand Google Reviews', info: 'Nombre de points de vente visibles apres filtres.' },
+          { label: 'Avis reseau visibles', value: visibleSummary.totalReviews.toLocaleString('fr-FR'), sub: 'Source prioritaire: scraping_brand Google Reviews', info: 'Volume total d avis Google Reviews pris en compte dans la vue reseau.' },
+          { label: 'Magasins a risque', value: visibleSummary.atRiskStores.toLocaleString('fr-FR'), sub: 'score de risque >= 55', info: 'Points de vente a rattraper selon le score reseau calcule.' },
+          { label: 'Backlog local', value: visibleSummary.backlog.toLocaleString('fr-FR'), sub: 'avis negatifs sans reponse', info: 'Dette de reponse locale visible sur les magasins de la fenetre active.' },
         ]}
       />
 
@@ -677,12 +677,12 @@ export default function Stores() {
         </div>
 
         <div className="signal-grid" style={{ marginBottom: 18 }}>
-          <SignalCard label="Source active" value="Google Reviews" note={`scope: ${coverageScope === 'all' ? 'historique complet' : 'fenetre active'}`} tone="neutral" />
-          <SignalCard label="Magasins en base" value={allTimeSummary.coveredStores} note="stores Google Reviews presents dans Supabase" tone="neutral" />
-          <SignalCard label="Magasins fenetre active" value={windowSummary.coveredStores} note="stores visibles avec les filtres globaux" tone="neutral" />
-          <SignalCard label="Negative rate reseau" value={`${visibleSummary.networkNegativeRate}%`} note="part negative sur le reseau visible" tone={toneFromValue(visibleSummary.networkNegativeRate, 40, 25)} />
-          <SignalCard label="Magasins a rattraper" value={visibleSummary.atRiskStores} note="score de risque >= 55" tone={toneFromValue(visibleSummary.atRiskStores, 6, 3)} />
-          <SignalCard label="Magasins vitrines" value={activeStoreModel.championStores.filter((store) => cityFilter === 'all' || store.city === cityFilter).length} note="notes elevees et faible pression negative" tone="neutral" />
+          <SignalCard label="Source active" value="Google Reviews" note={`Source: scraping_brand | ${coverageScope === 'all' ? 'historique complet' : 'fenetre active'}`} info="Cette vue magasins repose sur les avis Google Reviews visibles dans scraping_brand." tone="neutral" />
+          <SignalCard label="Magasins en base" value={allTimeSummary.coveredStores} note="Source: scraping_brand | total Supabase" info="Nombre total de magasins Google Reviews presents dans Supabase." tone="neutral" />
+          <SignalCard label="Magasins fenetre active" value={windowSummary.coveredStores} note="Source: filtres globaux" info="Nombre de magasins encore visibles apres application des filtres globaux." tone="neutral" />
+          <SignalCard label="Negative rate reseau" value={`${visibleSummary.networkNegativeRate}%`} note="Source: avis visibles du reseau" info="Part des avis negatifs sur le reseau actuellement visible." tone={toneFromValue(visibleSummary.networkNegativeRate, 40, 25)} />
+          <SignalCard label="Magasins a rattraper" value={visibleSummary.atRiskStores} note="Source: score de risque magasin" info="Magasins dont le score de risque depasse le seuil de rattrapage." tone={toneFromValue(visibleSummary.atRiskStores, 6, 3)} />
+          <SignalCard label="Magasins vitrines" value={activeStoreModel.championStores.filter((store) => cityFilter === 'all' || store.city === cityFilter).length} note="Source: championStores" info="Magasins avec bonne note et faible pression negative a prendre comme reference." tone="neutral" />
         </div>
 
         <div className="strategic-grid-2">
@@ -712,10 +712,10 @@ export default function Stores() {
         subtitle="Ou defendre et ou accelerer, ville par ville."
       >
         <div className="signal-grid" style={{ marginBottom: 18 }}>
-          <SignalCard label="Villes comparables" value={visibleOverlapCities.length} note="presence marque et concurrent" tone="neutral" />
-          <SignalCard label="Note reseau Fnac Darty" value={visibleSummary.networkRating !== null ? `${visibleSummary.networkRating}/5` : 'n/a'} note={`${visibleSummary.coveredStores} points visibles`} tone="neutral" />
-          <SignalCard label="Note reseau Boulanger" value={competitorVisibleSummary.networkRating !== null ? `${competitorVisibleSummary.networkRating}/5` : 'n/a'} note={`${competitorVisibleSummary.coveredStores} points visibles`} tone="neutral" />
-          <SignalCard label="Ville a reprendre" value={defendCities[0]?.city || 'n/a'} note={defendCities[0] ? `${defendCities[0].delta} pts de delta local` : 'pas de ville clairement en retard'} tone={defendCities[0] ? 'warning' : 'neutral'} />
+          <SignalCard label="Villes comparables" value={visibleOverlapCities.length} note="Source: cityComparison | marque + concurrent" info="Villes ou Fnac Darty et Boulanger sont tous deux visibles dans le benchmark local." tone="neutral" />
+          <SignalCard label="Note reseau Fnac Darty" value={visibleSummary.networkRating !== null ? `${visibleSummary.networkRating}/5` : 'n/a'} note="Source: stores visibles marque" info="Moyenne des notes magasins Fnac Darty visibles." tone="neutral" />
+          <SignalCard label="Note reseau Boulanger" value={competitorVisibleSummary.networkRating !== null ? `${competitorVisibleSummary.networkRating}/5` : 'n/a'} note="Source: stores visibles concurrent" info="Moyenne des notes magasins Boulanger visibles." tone="neutral" />
+          <SignalCard label="Ville a reprendre" value={defendCities[0]?.city || 'n/a'} note={defendCities[0] ? `delta local ${defendCities[0].delta}` : 'pas de ville clairement en retard'} info="Ville ou le benchmark local penche actuellement cote concurrent." tone={defendCities[0] ? 'warning' : 'neutral'} />
         </div>
 
         <div className="strategic-grid-2">

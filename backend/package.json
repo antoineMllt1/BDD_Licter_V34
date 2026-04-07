@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon main.js",
-    "start": "node main.js"
+    "start": "node main.js",
+    "enrich:openai": "node scripts/openai-enrich-tables.mjs",
+    "enrich:ml": "node scripts/ml-enrich-tables.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

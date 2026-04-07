@@ -1,6 +1,8 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { GlobalFiltersBar } from '../lib/FilterContext.jsx'
 import { useStrategicDashboardData } from '../lib/strategicData.js'
+import ExpandableText from '../components/ExpandableText.jsx'
 import {
   EvidenceFeed,
   SignalCard,
@@ -17,8 +19,19 @@ function LoadingState() {
   )
 }
 
+function scaleCount(value, factor) {
+  return Math.round((Number(value) || 0) * factor)
+}
+
 export default function VoiceOfCustomer() {
   const { loading, error, cxModel } = useStrategicDashboardData()
+  const [compareMode, setCompareMode] = useState('raw')
+  const brand = cxModel?.brand
+  const competitor = cxModel?.competitor
+  const comparisonBase = useMemo(() => {
+    if (!brand?.summary?.total || !competitor?.summary?.total) return 0
+    return Math.min(brand.summary.total, competitor.summary.total)
+  }, [brand?.summary?.total, competitor?.summary?.total])
 
   if (loading) return <LoadingState />
 
@@ -31,11 +44,22 @@ export default function VoiceOfCustomer() {
     )
   }
 
-  const brand = cxModel.brand
-  const competitor = cxModel.competitor
+  const brandScraped = brand.summary.sourceMix?.scraping_brand || 0
+  const brandCxImported = brand.summary.sourceMix?.voix_client_cx || 0
+  const competitorScraped = competitor.summary.sourceMix?.scraping_competitor || 0
   const topFriction = brand.frictions[0]
   const delightLead = brand.delights[0]
   const ratingGap = Number((Number(brand.summary.avgRating) - Number(competitor.summary.avgRating)).toFixed(1))
+  const brandFactor = comparisonBase && brand.summary.total ? comparisonBase / brand.summary.total : 1
+  const competitorFactor = comparisonBase && competitor.summary.total ? comparisonBase / competitor.summary.total : 1
+  const compareIsBalanced = compareMode === 'balanced' && comparisonBase > 0
+  const displayBrandTotal = compareIsBalanced ? scaleCount(brand.summary.total, brandFactor) : brand.summary.total
+  const displayCompetitorTotal = compareIsBalanced ? scaleCount(competitor.summary.total, competitorFactor) : competitor.summary.total
+  const displayBrandNegative = compareIsBalanced ? scaleCount(brand.summary.negativeCount || brand.summary.total * (brand.summary.negativeRate / 100), brandFactor) : null
+  const displayCompetitorNegative = compareIsBalanced ? scaleCount(competitor.summary.negativeCount || competitor.summary.total * (competitor.summary.negativeRate / 100), competitorFactor) : null
+  const imbalanceRatio = comparisonBase
+    ? (Math.max(brand.summary.total, competitor.summary.total) / comparisonBase)
+    : null
 
   return (
     <div>
@@ -59,14 +83,32 @@ export default function VoiceOfCustomer() {
           { label: 'Retour cockpit', to: '/', kind: 'ghost' },
         ]}
         stats={[
-          { label: 'Note Fnac Darty', value: `${brand.summary.avgRating}/5`, sub: `${brand.summary.total} verbatims exploites` },
-          { label: 'Part negative', value: `${brand.summary.negativeRate}%`, sub: `${brand.summary.criticalRate}% a criticite elevee` },
-          { label: 'Gap vs Boulanger', value: `${ratingGap >= 0 ? '+' : ''}${ratingGap}`, sub: `${competitor.summary.avgRating}/5 cote concurrent` },
-          { label: 'Top delight', value: delightLead?.label || 'n/a', sub: delightLead ? `${delightLead.count} preuves positives` : 'pas de signal fort' },
+          { label: compareIsBalanced ? 'Avis marque ratio' : 'Avis marque', value: displayBrandTotal.toLocaleString('fr-FR'), sub: `${brandScraped} scraping_brand | ${brandCxImported} voix_client_cx`, info: compareIsBalanced ? 'Volume Fnac Darty ramene a une base comparable avec le concurrent.' : 'Volume total d avis marque visible sur la periode, detaille entre scrape marque et base CX importee.' },
+          { label: 'Avis notes', value: brand.summary.rated.toLocaleString('fr-FR'), sub: `${brand.summary.avgRating}/5 de moyenne`, info: 'Nombre d avis disposant d une note exploitable pour calculer la moyenne.' },
+          { label: 'Avis negatifs', value: `${brand.summary.negativeRate}%`, sub: compareIsBalanced && displayBrandNegative !== null ? `${displayBrandNegative.toLocaleString('fr-FR')} avis ratio | ${brand.summary.criticalRate}% a criticite elevee` : `${brand.summary.criticalRate}% a criticite elevee`, info: 'Part d avis negatifs dans les bases clients marque. La criticite elevee depend des champs severity high/critical quand ils existent.' },
+          { label: compareIsBalanced ? 'Avis concurrent ratio' : 'Avis concurrent scrapes', value: displayCompetitorTotal.toLocaleString('fr-FR'), sub: compareIsBalanced && displayCompetitorNegative !== null ? `${displayCompetitorNegative.toLocaleString('fr-FR')} negatifs ratio | ${competitorScraped} scraping_competitor` : `${competitorScraped} scraping_competitor`, info: compareIsBalanced ? 'Volume concurrent ramene a une base comparable avec Fnac Darty.' : 'Volume d avis concurrent visible, issu du scraping concurrent.' },
         ]}
       />
 
       <GlobalFiltersBar />
+
+      <div className="filters-bar" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className={compareMode === 'balanced' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+            onClick={() => setCompareMode((current) => current === 'balanced' ? 'raw' : 'balanced')}
+            disabled={!comparisonBase}
+          >
+            {compareMode === 'balanced' ? 'Ratio ON' : 'Ratio OFF'}
+          </button>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            {compareIsBalanced
+              ? `Mode equilibre: les volumes avis sont ramenes a ${comparisonBase.toLocaleString('fr-FR')} lignes pour comparer Fnac Darty et Boulanger.`
+              : 'Mode brut: les volumes avis restent affiches tels quels.'}
+          </span>
+          {imbalanceRatio && imbalanceRatio > 1.2 ? <span className="badge badge-primary" style={{ fontSize: 11 }}>ecart x{imbalanceRatio.toFixed(1)}</span> : null}
+        </div>
+      </div>
 
       <StrategicSection
         title="Vue satisfaction"
@@ -74,10 +116,10 @@ export default function VoiceOfCustomer() {
         actions={<Link to="/battle-matrix" className="btn btn-ghost btn-sm">Voir le benchmark</Link>}
       >
         <div className="signal-grid">
-          <SignalCard label="Note moyenne marque" value={`${brand.summary.avgRating}/5`} note={`${brand.summary.rated} avis notes`} tone="neutral" />
-          <SignalCard label="Negative rate marque" value={`${brand.summary.negativeRate}%`} note="part negative de la base client" tone={brand.summary.negativeRate > 35 ? 'warning' : 'neutral'} />
-          <SignalCard label="Note moyenne concurrent" value={`${competitor.summary.avgRating}/5`} note={`${competitor.summary.rated} avis notes`} tone="neutral" />
-          <SignalCard label="Negative rate concurrent" value={`${competitor.summary.negativeRate}%`} note="part negative cote Boulanger" tone={competitor.summary.negativeRate > brand.summary.negativeRate ? 'warning' : 'neutral'} />
+          <SignalCard label="Note moyenne marque" value={`${brand.summary.avgRating}/5`} note={compareIsBalanced ? `${displayBrandTotal.toLocaleString('fr-FR')} avis ratio | ${brandScraped} scraping_brand | ${brandCxImported} voix_client_cx` : `${brandScraped} scraping_brand | ${brandCxImported} voix_client_cx`} info="Moyenne des notes disponibles cote Fnac Darty, en combinant scrape marque et base CX importee." tone="neutral" />
+          <SignalCard label="Top irritant" value={topFriction?.label || 'n/a'} note={topFriction ? `${topFriction.count} cas | ${topFriction.cityLabel}` : 'pas de foyer dominant'} info="Categorie d irritant la plus frequente dans les avis negatifs marque." tone={topFriction ? 'warning' : 'neutral'} />
+          <SignalCard label="Note moyenne concurrent" value={`${competitor.summary.avgRating}/5`} note={compareIsBalanced ? `${displayCompetitorTotal.toLocaleString('fr-FR')} avis ratio | ${competitorScraped} scraping_competitor` : `${competitorScraped} scraping_competitor`} info="Moyenne des notes disponibles cote Boulanger, issue du scraping concurrent." tone="neutral" />
+          <SignalCard label="Ecart note" value={`${ratingGap > 0 ? '+' : ''}${ratingGap}`} note={compareIsBalanced ? 'La note reste brute; seuls les volumes sont reequilibres.' : 'Comparaison brute Fnac Darty vs Boulanger'} info="Ecart de note moyenne entre Fnac Darty et Boulanger. Le mode ratio ne modifie pas les moyennes, seulement le contexte de volume." tone={ratingGap < 0 ? 'warning' : 'neutral'} />
         </div>
       </StrategicSection>
 
@@ -99,7 +141,9 @@ export default function VoiceOfCustomer() {
               </div>
               <div className="friction-evidence-list">
                 {friction.evidence.slice(0, 1).map((quote) => (
-                  <div key={quote} className="friction-evidence">"{quote}"</div>
+                  <div key={quote} className="friction-evidence">
+                    <ExpandableText text={`"${quote}"`} maxLength={170} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -120,7 +164,11 @@ export default function VoiceOfCustomer() {
                 <div key={item.label} className="battle-pocket-item">
                   <strong>{item.label}</strong>
                   <span>{item.count} preuves positives</span>
-                  {item.evidence[0] && <div className="battle-pocket-preview">"{item.evidence[0]}"</div>}
+                  {item.evidence[0] && (
+                    <div className="battle-pocket-preview">
+                      <ExpandableText text={`"${item.evidence[0]}"`} maxLength={160} />
+                    </div>
+                  )}
                 </div>
               ))}
               {brand.delights.length === 0 && <div className="evidence-empty">Pas de delight point dominant sur la periode.</div>}

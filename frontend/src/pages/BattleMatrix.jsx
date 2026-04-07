@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Bar,
@@ -11,6 +12,7 @@ import {
 import { GlobalFiltersBar } from '../lib/FilterContext.jsx'
 import { useStrategicDashboardData } from '../lib/strategicData.js'
 import ChartCard from '../components/ChartCard.jsx'
+import ExpandableText from '../components/ExpandableText.jsx'
 import {
   SignalCard,
   StrategicHero,
@@ -53,6 +55,10 @@ function selectProofs(dimension, mode = 'winner') {
   return dimension.proofs || []
 }
 
+function scaleValue(value, factor) {
+  return Math.round((Number(value) || 0) * factor)
+}
+
 function BattlePocketItem({ dimension, proofMode = 'winner' }) {
   const proofs = selectProofs(dimension, proofMode)
   const previewProof = proofs[0]?.text || null
@@ -67,7 +73,9 @@ function BattlePocketItem({ dimension, proofMode = 'winner' }) {
       <strong>{dimension.label}</strong>
       <div className="battle-pocket-topic">Topic dominant: {topicLabel}</div>
       <div className="battle-pocket-preview">
-        {previewProof ? `"${previewProof}"` : 'Pas de verbatim benchmark exploitable sur cette dimension.'}
+        {previewProof
+          ? <ExpandableText text={`"${previewProof}"`} maxLength={160} />
+          : 'Pas de verbatim benchmark exploitable sur cette dimension.'}
       </div>
       {(proofs[0]?.source || proofs.length > 0) && (
         <div className="battle-proof-meta" style={{ marginTop: 8 }}>
@@ -82,6 +90,25 @@ function BattlePocketItem({ dimension, proofMode = 'winner' }) {
 
 export default function BattleMatrix() {
   const { loading, error, battleModel } = useStrategicDashboardData()
+  const [compareMode, setCompareMode] = useState('raw')
+  const comparisonBase = useMemo(() => {
+    if (!battleModel?.brandMentions || !battleModel?.competitorMentions) return 0
+    return Math.min(battleModel.brandMentions, battleModel.competitorMentions)
+  }, [battleModel?.brandMentions, battleModel?.competitorMentions])
+  const brandFactor = comparisonBase && battleModel?.brandMentions ? comparisonBase / battleModel.brandMentions : 1
+  const competitorFactor = comparisonBase && battleModel?.competitorMentions ? comparisonBase / battleModel.competitorMentions : 1
+  const compareIsBalanced = compareMode === 'balanced' && comparisonBase > 0
+  const normalizedDimensions = useMemo(() => (battleModel?.dimensions || []).map((dimension) => {
+    const brandScore = compareIsBalanced ? scaleValue(dimension.brandScore, brandFactor) : dimension.brandScore
+    const competitorScore = compareIsBalanced ? scaleValue(dimension.competitorScore, competitorFactor) : dimension.competitorScore
+    return {
+      ...dimension,
+      brandScore,
+      competitorScore,
+      delta: brandScore - competitorScore,
+      winner: brandScore > competitorScore ? 'brand' : brandScore < competitorScore ? 'competitor' : 'tie',
+    }
+  }), [battleModel?.dimensions, compareIsBalanced, brandFactor, competitorFactor])
 
   if (loading) return <LoadingState />
 
@@ -94,23 +121,28 @@ export default function BattleMatrix() {
     )
   }
 
-  const winningDimensions = battleModel.dimensions.filter((dimension) => dimension.winner === 'brand')
-  const losingDimensions = battleModel.dimensions.filter((dimension) => dimension.winner === 'competitor')
-  const chartData = battleModel.dimensions.slice(0, 8).map((dimension) => ({
+  const winningDimensions = normalizedDimensions.filter((dimension) => dimension.winner === 'brand')
+  const losingDimensions = normalizedDimensions.filter((dimension) => dimension.winner === 'competitor')
+  const chartData = normalizedDimensions.slice(0, 8).map((dimension) => ({
     name: dimension.label,
     brand: dimension.brandScore,
     competitor: dimension.competitorScore,
   }))
+  const displayBrandMentions = compareIsBalanced ? scaleValue(battleModel.brandMentions, brandFactor) : battleModel.brandMentions
+  const displayCompetitorMentions = compareIsBalanced ? scaleValue(battleModel.competitorMentions, competitorFactor) : battleModel.competitorMentions
+  const imbalanceRatio = comparisonBase
+    ? (Math.max(battleModel.brandMentions, battleModel.competitorMentions) / comparisonBase)
+    : null
 
   return (
     <div>
       <StrategicHero
         eyebrow="Battle Matrix"
-        title="Voir ou la marque gagne, cede ou peut reprendre du terrain."
+        title="Voir ou Fnac Darty gagne, cede ou peut reprendre du terrain."
         summary={
           losingDimensions[0]
             ? `Boulanger prend de la place sur ${losingDimensions[0].label.toLowerCase()}, alors que Fnac Darty garde la main sur ${winningDimensions[0] ? winningDimensions[0].label.toLowerCase() : 'ses dimensions coeur'}.`
-            : 'Le terrain concurrentiel reste relativement equilibre. Il faut exploiter les dimensions ou la marque peut accelerer sans diluer son positionnement.'
+            : 'Le terrain concurrentiel reste relativement equilibre. Il faut exploiter les dimensions ou Fnac Darty peut accelerer sans diluer son positionnement.'
         }
         whyItMatters="Le benchmark doit montrer les territoires gagnes, ceux a defendre et les angles d attaque."
         whatNow={
@@ -124,14 +156,32 @@ export default function BattleMatrix() {
           { label: 'Retour cockpit', to: '/', kind: 'ghost' },
         ]}
         stats={[
-          { label: 'SOV Fnac Darty', value: `${battleModel.sovBrand}%`, sub: `${battleModel.brandMentions} mentions benchmark` },
-          { label: 'SOV Boulanger', value: `${battleModel.sovCompetitor}%`, sub: `${battleModel.competitorMentions} mentions benchmark` },
-          { label: 'Delta sentiment', value: `${battleModel.sentimentDelta >= 0 ? '+' : ''}${battleModel.sentimentDelta} pts`, sub: 'positif marque moins concurrent' },
-          { label: 'Dimensions perdues', value: losingDimensions.length.toLocaleString('fr-FR'), sub: `${winningDimensions.length} dimensions en avance` },
+          { label: compareIsBalanced ? 'Mentions Fnac Darty ratio' : 'Mentions Fnac Darty', value: displayBrandMentions.toLocaleString('fr-FR'), sub: 'Source: benchmark_marche', info: compareIsBalanced ? 'Mentions Fnac Darty ramenees au volume Boulanger pour comparer les dimensions.' : 'Nombre de lignes benchmark attribuees a Fnac Darty.' },
+          { label: compareIsBalanced ? 'Mentions Boulanger ratio' : 'Mentions Boulanger', value: displayCompetitorMentions.toLocaleString('fr-FR'), sub: 'Source: benchmark_marche', info: compareIsBalanced ? 'Mentions Boulanger ramenees au meme ordre de grandeur de comparaison.' : 'Nombre de lignes benchmark attribuees a Boulanger.' },
+          { label: 'Dimensions perdues', value: losingDimensions.length.toLocaleString('fr-FR'), sub: 'Boulanger devant', info: 'Nombre de dimensions ou le score concurrent est superieur au score marque.' },
+          { label: 'Dimensions gagnees', value: winningDimensions.length.toLocaleString('fr-FR'), sub: 'Fnac Darty devant', info: 'Nombre de dimensions ou le score marque est superieur au score concurrent.' },
         ]}
       />
 
       <GlobalFiltersBar />
+
+      <div className="filters-bar" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className={compareMode === 'balanced' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+            onClick={() => setCompareMode((current) => current === 'balanced' ? 'raw' : 'balanced')}
+            disabled={!comparisonBase}
+          >
+            {compareMode === 'balanced' ? 'Ratio ON' : 'Ratio OFF'}
+          </button>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            {compareIsBalanced
+              ? `Mode equilibre: les mentions benchmark sont ramenees a ${comparisonBase.toLocaleString('fr-FR')} lignes pour comparer les dimensions.`
+              : 'Mode brut: les scores restent fondes sur les volumes benchmark reels.'}
+          </span>
+          {imbalanceRatio && imbalanceRatio > 1.2 ? <span className="badge badge-primary" style={{ fontSize: 11 }}>ecart x{imbalanceRatio.toFixed(1)}</span> : null}
+        </div>
+      </div>
 
       <StrategicSection
         title="Scorecard concurrentielle"
@@ -139,10 +189,10 @@ export default function BattleMatrix() {
         actions={<Link to="/action-center" className="btn btn-ghost btn-sm">Voir les actions</Link>}
       >
         <div className="signal-grid" style={{ marginBottom: 18 }}>
-          <SignalCard label="Share of voice marque" value={`${battleModel.sovBrand}%`} note="part de voix benchmark" tone="neutral" />
-          <SignalCard label="Share of voice concurrent" value={`${battleModel.sovCompetitor}%`} note="part de voix benchmark" tone="warning" />
-          <SignalCard label="Dimensions a defendre" value={losingDimensions.length} note="territoires ou Boulanger prend l avantage" tone={losingDimensions.length > 2 ? 'warning' : 'neutral'} />
-          <SignalCard label="White spaces" value={battleModel.whiteSpaces.length} note="zones encore arbitrables" tone="neutral" />
+          <SignalCard label="Part de voix marque" value={`${battleModel.sovBrand}%`} note={compareIsBalanced ? `${displayBrandMentions.toLocaleString('fr-FR')} mentions ratio | benchmark_marche` : 'Source: benchmark_marche | Fnac Darty'} info="Part des mentions benchmark attribuees a Fnac Darty. Le ratio repondere les volumes mais ne change pas la part de voix brute." tone="neutral" />
+          <SignalCard label="Part de voix concurrent" value={`${battleModel.sovCompetitor}%`} note={compareIsBalanced ? `${displayCompetitorMentions.toLocaleString('fr-FR')} mentions ratio | benchmark_marche` : 'Source: benchmark_marche | Boulanger'} info="Part des mentions benchmark attribuees a Boulanger. Le ratio repondere les volumes mais ne change pas la part de voix brute." tone="warning" />
+          <SignalCard label="Dimensions a defendre" value={losingDimensions.length} note="Source: benchmark_marche | retard marque" info="Dimensions ou Boulanger prend l avantage sur le score compare." tone={losingDimensions.length > 2 ? 'warning' : 'neutral'} />
+          <SignalCard label="Dimensions a ouvrir" value={battleModel.whiteSpaces.length} note="Source: benchmark_marche | zones arbitrables" info="Dimensions encore peu tranchees entre marque et concurrent." tone="neutral" />
         </div>
 
         <div className="strategic-grid-2">
@@ -185,10 +235,10 @@ export default function BattleMatrix() {
 
       <StrategicSection
         title="Dimensions gagnantes et perdantes"
-        subtitle="Ou la marque gagne, cede, et sur quel sujet."
+        subtitle="Ou Fnac Darty gagne, cede, et sur quel sujet."
       >
         <div className="battle-dimension-list">
-          {battleModel.dimensions.slice(0, 10).map((dimension) => (
+          {normalizedDimensions.slice(0, 10).map((dimension) => (
             <div key={dimension.id} className={`battle-dimension-card ${winnerTone(dimension.winner)}`}>
               <div className="battle-dimension-topline">
                 <span className={`badge ${dimension.winner === 'brand' ? 'badge-primary' : dimension.winner === 'competitor' ? 'badge-orange' : 'badge-neutral'}`}>
@@ -217,30 +267,30 @@ export default function BattleMatrix() {
           <div className="battle-pocket-card">
             <div className="battle-pocket-title">Zones neutres</div>
             <div className="battle-pocket-list">
-              {battleModel.whiteSpaces.map((dimension) => (
+              {normalizedDimensions.filter((dimension) => dimension.winner === 'tie').slice(0, 5).map((dimension) => (
                 <BattlePocketItem key={dimension.id} dimension={dimension} proofMode="mixed" />
               ))}
-              {battleModel.whiteSpaces.length === 0 && <div className="evidence-empty">Aucun white space clair pour le moment.</div>}
+              {normalizedDimensions.filter((dimension) => dimension.winner === 'tie').length === 0 && <div className="evidence-empty">Aucun white space clair pour le moment.</div>}
             </div>
           </div>
 
           <div className="battle-pocket-card">
             <div className="battle-pocket-title">A proteger</div>
             <div className="battle-pocket-list">
-              {battleModel.defend.map((dimension) => (
+              {losingDimensions.slice(0, 5).map((dimension) => (
                 <BattlePocketItem key={dimension.id} dimension={dimension} proofMode="competitor" />
               ))}
-              {battleModel.defend.length === 0 && <div className="evidence-empty">Aucun sujet de defense dominant.</div>}
+              {losingDimensions.length === 0 && <div className="evidence-empty">Aucun sujet de defense dominant.</div>}
             </div>
           </div>
 
           <div className="battle-pocket-card">
             <div className="battle-pocket-title">A pousser</div>
             <div className="battle-pocket-list">
-              {battleModel.attack.map((dimension) => (
+              {winningDimensions.slice(0, 5).map((dimension) => (
                 <BattlePocketItem key={dimension.id} dimension={dimension} proofMode="brand" />
               ))}
-              {battleModel.attack.length === 0 && <div className="evidence-empty">Aucun angle d attaque tres net sur la periode.</div>}
+              {winningDimensions.length === 0 && <div className="evidence-empty">Aucun angle d attaque tres net sur la periode.</div>}
             </div>
           </div>
         </div>

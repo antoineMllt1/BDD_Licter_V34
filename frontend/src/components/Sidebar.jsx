@@ -4,23 +4,23 @@ const NAV = [
   {
     section: 'Pilotage',
     items: [
-      { to: '/', label: 'Cockpit' },
-      { to: '/war-room', label: 'Crise' },
+      { to: '/', label: 'Cockpit COMEX' },
+      { to: '/war-room', label: 'War Room' },
       { to: '/social', label: 'Social Media' },
-      { to: '/battle-matrix', label: 'Concurrence' },
-      { to: '/voix-du-client', label: 'Clients' },
-      { to: '/magasins', label: 'Magasins' },
-      { to: '/action-center', label: 'Actions' },
+      { to: '/battle-matrix', label: 'Battle Matrix' },
+      { to: '/voix-du-client', label: 'Voix du Client' },
+      { to: '/magasins', label: 'Pilotage Magasins' },
+      { to: '/action-center', label: 'Action Center' },
     ],
   },
   {
     section: 'Back-office',
     items: [
-      { to: '/scraping', label: 'Collecte' },
-      { to: '/scraping/results', label: 'Historique' },
-      { to: '/data', label: 'Data' },
+      { to: '/scraping', label: 'Hub Scraping' },
+      { to: '/scraping/results', label: 'Resultats Scraping' },
+      { to: '/data', label: 'Base de Donnees' },
       { to: '/automation', label: 'Automations' },
-      { to: '/comex', label: 'Rapport PDF' },
+      { to: '/comex', label: 'Rapport COMEX' },
     ],
   },
 ]

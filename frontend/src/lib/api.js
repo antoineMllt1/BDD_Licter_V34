@@ -47,6 +47,8 @@ export const api = {
   activateScenario: (id) => req('POST', `/make/scenarios/${id}/activate`),
   deactivateScenario: (id) => req('POST', `/make/scenarios/${id}/deactivate`),
   runScenario: (id) => req('POST', `/make/scenarios/${id}/run`),
+  getMlEnrichmentStatus: (refresh = false) => req('GET', `/ml/enrich/status${refresh ? '?refresh=1' : ''}`),
+  runMlEnrichment: (body) => req('POST', '/ml/enrich/run', body),
 
   // COMEX PDF (special: returns blob)
   generateComex: async (body) => {

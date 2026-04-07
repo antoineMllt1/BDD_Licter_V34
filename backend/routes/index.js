@@ -20,6 +20,10 @@ import {
   runScenario,
   getScenarioProgress
 } from '../controllers/make.controller.js'
+import {
+  getMlEnrichmentStatus,
+  runMlEnrichment
+} from '../controllers/ml.controller.js'
 import { generateComexPdf } from '../controllers/comex.controller.js'
 
 const router = Router()
@@ -42,6 +46,10 @@ router.get('/make/scenarios/:id/progress', getScenarioProgress)
 router.post('/make/scenarios/:id/activate', activateScenario)
 router.post('/make/scenarios/:id/deactivate', deactivateScenario)
 router.post('/make/scenarios/:id/run', runScenario)
+
+// Local ML
+router.get('/ml/enrich/status', getMlEnrichmentStatus)
+router.post('/ml/enrich/run', runMlEnrichment)
 
 // COMEX Report
 router.post('/comex/generate', generateComexPdf)

@@ -69,6 +69,7 @@ const SCENARIO_META = {
 }
 
 const POLL_INTERVAL_MS = 4000
+const ML_TABLE_COUNT = 7
 const GROUP_ORDER = ['enrichment', 'benchmark', 'reputation', 'social', 'scraping', 'pipeline', 'other']
 const GROUP_META = {
   enrichment: {
@@ -385,14 +386,164 @@ function ScenarioGroupSection({ groupKey, scenarios, runStates, onToggle, onRun 
   )
 }
 
+function resolveMlSummary(status) {
+  if (!status) return null
+  if (status.status === 'completed' && status.lastSummary) return status.lastSummary
+  if (status.lastScanSummary) return status.lastScanSummary
+  return status.lastSummary || null
+}
+
+function isVisibleMlLog(line) {
+  const value = String(line || '').trim()
+  if (!value) return false
+  if (/^[\[\]\{\}]+$/.test(value)) return false
+  if (value.startsWith('"')) return false
+  return true
+}
+
+function LocalMlPanel({ status, loading, actionLoading, onRefresh, onRun, error }) {
+  const summary = resolveMlSummary(status)
+  const hasSummary = Boolean(summary)
+  const pendingRows = summary?.pendingRows ?? null
+  const trainingRows = summary?.trainingRows ?? null
+  const totalUpdated = summary?.summary?.reduce((total, item) => total + (item.updated || 0), 0) || 0
+  const tablesTouched = summary?.summary?.filter((item) => (item.updated || item.pending || item.failed || item.skipped) > 0).length || 0
+  const badgeStatus = error ? 'error' : status?.status === 'idle' || !status?.status ? 'inactive' : status.status
+  const statusMessage = error
+    ? error
+    : status?.status === 'running'
+      ? 'Le script ML local enrichit les tables en arriere-plan.'
+      : status?.status === 'completed'
+        ? 'Derniere execution terminee avec succes.'
+        : summary
+          ? 'Dernier scan disponible pour estimer les lignes encore enrichissables.'
+          : 'Aucun scan ML local lance pour le moment.'
+  const statItems = hasSummary
+    ? [
+      `${pendingRows} lignes restantes`,
+      `${trainingRows} lignes d apprentissage`,
+      `${tablesTouched || 0} tables couvertes`,
+      `${totalUpdated || 0} lignes maj au dernier run`,
+    ]
+    : [
+      `${ML_TABLE_COUNT} tables cibles`,
+      loading ? 'Scan en preparation' : 'Aucun scan lance',
+      status?.running ? 'Execution en cours' : 'Pret a enrichir',
+    ]
+  const visibleLogs = (status?.logs || []).filter(isVisibleMlLog).slice(-5)
+
+  return (
+    <div className="card automation-overview-card" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 18, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div className="card-title" style={{ marginBottom: 0 }}>Machine learning local</div>
+            <StatusBadge status={badgeStatus} />
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 780 }}>
+            Lance le modele local appris sur les lignes deja completees pour enrichir les tables Supabase sans passer par Make ni OpenAI.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            {statItems.map((item) => (
+              <span key={item} className="badge badge-primary">{item}</span>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            className="btn btn-primary"
+            onClick={onRun}
+            disabled={loading || actionLoading || status?.running}
+          >
+            {actionLoading
+              ? <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />Activation...</>
+              : status?.running
+                ? 'ML en cours...'
+                : 'Lancer le ML local'}
+          </button>
+
+          <button className="btn btn-ghost btn-sm" onClick={onRefresh} disabled={loading || actionLoading || status?.running}>
+            {loading ? 'Scan...' : 'Scanner les lignes'}
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 14,
+          padding: '10px 12px',
+          borderRadius: 'var(--radius-sm)',
+          border: `1px solid ${error ? '#F8BBD9' : 'var(--border)'}`,
+          background: error ? 'var(--negative-light)' : 'var(--surface-alt)',
+          fontSize: 12,
+          color: error ? 'var(--negative)' : 'var(--text-muted)',
+          lineHeight: 1.6
+        }}
+      >
+        {statusMessage}
+      </div>
+
+      {(status?.startedAt || status?.finishedAt || status?.lastScanAt) && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+          {status?.startedAt ? <span>Demarre: {new Date(status.startedAt).toLocaleString('fr-FR')}</span> : null}
+          {status?.finishedAt ? <span>Fini: {new Date(status.finishedAt).toLocaleString('fr-FR')}</span> : null}
+          {status?.lastScanAt ? <span>Dernier scan: {new Date(status.lastScanAt).toLocaleString('fr-FR')}</span> : null}
+        </div>
+      )}
+
+      {visibleLogs.length ? (
+        <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--surface-alt)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Derniers logs</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {visibleLogs.map((line, index) => (
+              <div key={`${line}-${index}`} style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {summary?.summary?.length ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 14 }}>
+          {summary.summary.map((item) => (
+            <div key={item.table} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--surface-alt)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>{item.table}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                Pending: {item.pending ?? 0}
+                <br />
+                Updated: {item.updated ?? 0}
+                <br />
+                Failed: {item.failed ?? 0}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function Automation() {
   const [scenarios, setScenarios] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [runStates, setRunStates] = useState({})
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [pageToast, setPageToast] = useState(null)
+  const [mlStatus, setMlStatus] = useState(null)
+  const [mlLoading, setMlLoading] = useState(true)
+  const [mlActionLoading, setMlActionLoading] = useState(false)
+  const [mlError, setMlError] = useState(null)
 
-  const loadScenarios = async () => {
-    setLoading(true)
+  const showPageToast = (message, type = 'success') => {
+    setPageToast({ message, type })
+    window.setTimeout(() => setPageToast(null), 3200)
+  }
+
+  const loadScenarios = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await api.getMakeScenarios()
@@ -409,12 +560,29 @@ export default function Automation() {
         { id: 5086449, name: 'BDD2026 - Webhook Sentiment Pipeline (Fnac Darty)', isActive: false, executions: 28, errors: 0, lastEdit: '2026-04-01T08:17:28.913Z', usedPackages: ['gateway', 'supabase', 'openai-gpt-3'] }
       ])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
   useEffect(() => {
     loadScenarios()
+  }, [])
+
+  const loadMlStatus = async ({ refresh = false, silent = false } = {}) => {
+    if (!silent) setMlLoading(true)
+    try {
+      const data = await api.getMlEnrichmentStatus(refresh)
+      setMlStatus(data)
+      setMlError(null)
+    } catch (err) {
+      setMlError(err.message)
+    } finally {
+      if (!silent) setMlLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMlStatus({ refresh: true })
   }, [])
 
   useEffect(() => {
@@ -528,6 +696,16 @@ export default function Automation() {
     return () => window.clearInterval(poll)
   }, [runStates])
 
+  useEffect(() => {
+    if (!mlStatus?.running) return undefined
+
+    const timer = window.setInterval(() => {
+      loadMlStatus({ silent: true })
+    }, 2500)
+
+    return () => window.clearInterval(timer)
+  }, [mlStatus?.running])
+
   const scenarioMap = useMemo(
     () => new Map(scenarios.map((scenario) => [scenario.id, scenario])),
     [scenarios]
@@ -569,6 +747,21 @@ export default function Automation() {
     [scenarios]
   )
 
+  const controllableScenarios = useMemo(
+    () => scenarios.filter((scenario) => getScenarioCapabilityMeta(scenario, SCENARIO_META[scenario.id] || {}).controlMode !== 'unavailable'),
+    [scenarios]
+  )
+
+  const inactiveControllableScenarios = useMemo(
+    () => controllableScenarios.filter((scenario) => !scenario.isActive),
+    [controllableScenarios]
+  )
+
+  const activeScenarioCount = useMemo(
+    () => scenarios.filter((scenario) => scenario.isActive).length,
+    [scenarios]
+  )
+
   const handleToggle = async (scenario) => {
     if (scenario.isActive) {
       await api.deactivateScenario(scenario.id)
@@ -576,7 +769,42 @@ export default function Automation() {
       await api.activateScenario(scenario.id)
     }
 
-    await loadScenarios()
+    await loadScenarios({ silent: true })
+  }
+
+  const handleActivateAll = async () => {
+    if (!inactiveControllableScenarios.length) {
+      showPageToast('Toutes les automations pilotables sont deja actives.')
+      return
+    }
+
+    setBulkLoading(true)
+    try {
+      const results = await Promise.allSettled(
+        inactiveControllableScenarios.map((scenario) => api.activateScenario(scenario.id))
+      )
+      const activated = results.filter((result) => result.status === 'fulfilled').length
+      const failed = results.length - activated
+
+      await loadScenarios({ silent: true })
+
+      if (activated > 0 && failed === 0) {
+        showPageToast(`${activated} automation${activated > 1 ? 's' : ''} activee${activated > 1 ? 's' : ''}.`)
+        return
+      }
+
+      if (activated > 0) {
+        showPageToast(`${activated} automation${activated > 1 ? 's' : ''} activee${activated > 1 ? 's' : ''}, ${failed} en erreur.`, 'warning')
+        return
+      }
+
+      const firstError = results.find((result) => result.status === 'rejected')
+      throw firstError?.reason || new Error('Impossible d activer les automations.')
+    } catch (err) {
+      showPageToast(err.message, 'error')
+    } finally {
+      setBulkLoading(false)
+    }
   }
 
   const handleRun = async (scenario) => {
@@ -618,13 +846,113 @@ export default function Automation() {
     }
   }
 
+  const handleRunMl = async () => {
+    setMlActionLoading(true)
+    try {
+      const result = await api.runMlEnrichment()
+      setMlStatus(result)
+      setMlError(null)
+      showPageToast(result?.message || 'Machine learning local lance.')
+    } catch (err) {
+      setMlError(err.message)
+      showPageToast(err.message, 'error')
+    } finally {
+      setMlActionLoading(false)
+    }
+  }
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button className="btn btn-ghost btn-sm" onClick={loadScenarios} disabled={loading}>
-          Actualiser
-        </button>
+      <div className="card automation-overview-card" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 18, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              <div className="card-title" style={{ marginBottom: 0 }}>Pilotage automation</div>
+              <StatusBadge status={inactiveControllableScenarios.length === 0 && controllableScenarios.length > 0 ? 'active' : 'inactive'} />
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 760 }}>
+              Active rapidement les scenarios Make pilotables depuis le dashboard, sans passer scenario par scenario.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              <span className="badge badge-primary">{activeScenarioCount} actifs</span>
+              <span className="badge badge-primary">{controllableScenarios.length} pilotables</span>
+              <span className="badge badge-primary">{inactiveControllableScenarios.length} a activer</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {inactiveControllableScenarios.length > 0 ? (
+              <button
+                className="btn btn-primary"
+                onClick={handleActivateAll}
+                disabled={loading || bulkLoading || controllableScenarios.length === 0}
+              >
+                {bulkLoading ? (
+                  <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />Activation...</>
+                ) : `Activer les automations (${inactiveControllableScenarios.length})`}
+              </button>
+            ) : (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '10px 14px',
+                  borderRadius: 999,
+                  background: 'var(--positive-light)',
+                  color: 'var(--positive)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: '1px solid #B2E8D8'
+                }}
+              >
+                Toutes les automations pilotables sont actives
+              </div>
+            )}
+
+            <button className="btn btn-ghost btn-sm" onClick={() => loadScenarios()} disabled={loading || bulkLoading}>
+              Actualiser
+            </button>
+          </div>
+        </div>
+
+        {pageToast && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 12,
+              fontWeight: 600,
+              background: pageToast.type === 'error'
+                ? 'var(--negative-light)'
+                : pageToast.type === 'warning'
+                  ? 'var(--neutral-light)'
+                  : 'var(--positive-light)',
+              color: pageToast.type === 'error'
+                ? 'var(--negative)'
+                : pageToast.type === 'warning'
+                  ? '#8A5A00'
+                  : 'var(--positive)',
+              border: `1px solid ${pageToast.type === 'error'
+                ? '#F8BBD9'
+                : pageToast.type === 'warning'
+                  ? '#F0CC89'
+                  : '#B2E8D8'}`
+            }}
+          >
+            {pageToast.message}
+          </div>
+        )}
       </div>
+
+      <LocalMlPanel
+        status={mlStatus}
+        loading={mlLoading}
+        actionLoading={mlActionLoading}
+        onRefresh={() => loadMlStatus({ refresh: true })}
+        onRun={handleRunMl}
+        error={mlError}
+      />
 
       {error && (
         <div style={{ background: 'var(--neutral-light)', border: '1px solid #F0CC89', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 20, fontSize: 12 }}>
@@ -633,8 +961,34 @@ export default function Automation() {
       )}
 
       {!error && limitedScenarioIds.length > 0 && (
-        <div style={{ background: 'var(--neutral-light)', border: '1px solid #F0CC89', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 20, fontSize: 12 }}>
-          Acces Make limite pour les scenarios <code>{limitedScenarioIds.join(', ')}</code>. Ceux avec webhook restent lancables depuis le dashboard; pour les autres, ajoutez <code>MAKE_WEBHOOK_&#60;SCENARIO_ID&#62;</code> dans <code>backend/.env</code> ou regenerez <code>MAKE_API_TOKEN</code> depuis le bon team.
+        <div
+          className="card automation-overview-card"
+          style={{
+            marginBottom: 20,
+            border: '1px solid #F0CC89',
+            background: 'linear-gradient(135deg, rgba(255,248,235,0.96), rgba(255,252,245,0.98))'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 520px', minWidth: 280 }}>
+              <div className="card-title" style={{ marginBottom: 6 }}>Acces Make limite</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                Certains scenarios n ont pas encore un acces API complet. Les webhooks restent lancables depuis le dashboard, mais les toggles Make natifs demandent encore une configuration.
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                {limitedScenarioIds.map((id) => (
+                  <span key={id} className="badge badge-primary" style={{ fontSize: 11 }}>{id}</span>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ flex: '0 1 420px', minWidth: 240 }}>
+              <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, marginBottom: 8 }}>Pour debloquer le pilotage</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                Ajoutez <code style={{ overflowWrap: 'anywhere' }}>MAKE_WEBHOOK_&#60;SCENARIO_ID&#62;</code> dans <code>backend/.env</code> pour un lancement direct, ou regenerez <code>MAKE_API_TOKEN</code> depuis le bon team Make.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

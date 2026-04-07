@@ -26,11 +26,6 @@ function toneFromSeverity(value) {
   return 'neutral'
 }
 
-function formatPercent(value) {
-  const text = String(value ?? '')
-  return text.includes('%') ? text : `${Number(value || 0)}%`
-}
-
 function LoadingState() {
   return (
     <div className="strategic-hero loading-wrap">
@@ -55,21 +50,24 @@ export default function WarRoom() {
   }
 
   const topPlatform = warRoomModel.reviewReputation.platforms[0]
+  const topPlatformSevere = topPlatform?.severeCount || 0
   const socialSignals = [
     {
-      id: 'social-volume',
-      label: 'Volume social',
-      value: warRoomModel.social.total.toLocaleString('fr-FR'),
-      note: 'mentions visibles cote marque',
+      id: 'social-negative',
+      label: 'Mentions negatives',
+      value: warRoomModel.social.negativeTotal.toLocaleString('fr-FR'),
+      note: 'Source: social_mentions | posts critiques detectes',
+      info: 'Mentions negatives detectees dans social_mentions. On ne suit ici que la pression critique, pas le volume social total.',
       tone: toneFromSeverity(
-        warRoomModel.social.total > 40 ? 'high' : warRoomModel.social.total > 12 ? 'medium' : 'low'
+        warRoomModel.social.negativeTotal > 40 ? 'high' : warRoomModel.social.negativeTotal > 12 ? 'medium' : 'low'
       ),
     },
     {
       id: 'social-engagement',
       label: 'Engagement critique',
       value: warRoomModel.social.engagement.toLocaleString('fr-FR'),
-      note: 'likes + shares + replies',
+      note: 'Source: social_mentions | likes + shares + replies',
+      info: 'Somme des interactions sur les mentions sociales marque. Plus ce chiffre monte, plus un signal peut se diffuser.',
       tone: toneFromSeverity(
         warRoomModel.social.engagement > 250 ? 'high' : warRoomModel.social.engagement > 80 ? 'medium' : 'low'
       ),
@@ -78,7 +76,8 @@ export default function WarRoom() {
       id: 'social-verified',
       label: 'Profils verifies',
       value: warRoomModel.social.verifiedAuthors.toLocaleString('fr-FR'),
-      note: 'auteurs verifies dans le flux social',
+      note: 'Source: social_mentions | auteurs verifies',
+      info: 'Comptes verifies reperes dans social_mentions. Ce KPI aide a isoler les auteurs plus visibles ou plus sensibles.',
       tone: toneFromSeverity(
         warRoomModel.social.verifiedAuthors > 2 ? 'critical' : warRoomModel.social.verifiedAuthors > 0 ? 'high' : 'low'
       ),
@@ -87,38 +86,51 @@ export default function WarRoom() {
       id: 'social-competitor',
       label: 'Buzz concurrent',
       value: warRoomModel.social.competitorBuzz.length.toLocaleString('fr-FR'),
-      note: 'posts concurrents a forte traction',
+      note: 'Source: social_mentions_competitor | posts a forte traction',
+      info: 'Posts a forte traction issus de social_mentions_competitor pour comparer la chauffe media autour du concurrent.',
       tone: 'neutral',
     },
   ]
 
   const reviewSignals = [
     {
-      id: 'review-negative',
-      label: 'Part negative',
-      value: formatPercent(warRoomModel.signals.find((signal) => signal.id === 'review-pressure')?.value),
-      note: 'pression reputation cote avis',
+      id: 'review-cases',
+      label: 'Cas crise',
+      value: warRoomModel.reviewReputation.total.toLocaleString('fr-FR'),
+      note: 'Source: reputation_crise | cas ouverts cote marque',
+      info: 'Ce chiffre vient de reputation_crise. Cette table etant deja orientee negatif/crise, on lit un volume de cas et non un taux de sentiment.',
       tone: toneFromSeverity(warRoomModel.signals.find((signal) => signal.id === 'review-pressure')?.severity),
+    },
+    {
+      id: 'review-severe',
+      label: 'Cas severes',
+      value: warRoomModel.reviewReputation.severeRows.length.toLocaleString('fr-FR'),
+      note: `Source: reputation_crise | ${warRoomModel.reviewReputation.severeRate}% du flux crise`,
+      info: 'Nombre de cas reputation_crise marques high/critical. C est le meilleur indicateur de gravite interne du flux.',
+      tone: toneFromSeverity(warRoomModel.reviewReputation.severeRate > 45 ? 'critical' : warRoomModel.reviewReputation.severeRate > 20 ? 'high' : 'low'),
     },
     {
       id: 'review-backlog',
       label: 'Backlog critique',
       value: warRoomModel.reviewReputation.backlog.length.toLocaleString('fr-FR'),
-      note: 'avis severes sans reponse',
+      note: 'Source: voix_client_cx + scraping_brand | severes sans reponse',
+      info: 'Avis de voix_client_cx et scraping_brand avec severite high/critical et sans owner_response. C est la dette d action la plus immediate.',
       tone: toneFromSeverity(warRoomModel.signals.find((signal) => signal.id === 'response-backlog')?.severity),
     },
     {
       id: 'review-platform',
       label: 'Plateforme sous tension',
       value: topPlatform?.name || 'n/a',
-      note: topPlatform ? `${topPlatform.value} mentions, ${topPlatform.negativeRate}% negatives` : 'aucune plateforme dominante',
-      tone: topPlatform?.negativeRate > 35 ? 'warning' : 'neutral',
+      note: topPlatform ? `Source: reputation_crise | ${topPlatform.value} cas, ${topPlatformSevere} severes` : 'Source: reputation_crise | aucune plateforme dominante',
+      info: 'Plateforme la plus representee dans reputation_crise sur la periode. On suit ici la concentration des cas, pas un negatif rate.',
+      tone: topPlatform?.share > 45 ? 'warning' : 'neutral',
     },
     {
       id: 'review-risk',
       label: 'Niveau crise',
       value: warRoomModel.crisisLevel.toUpperCase(),
-      note: 'lecture combinee social + avis',
+      note: 'Source: modele composite | social + reputation + backlog',
+      info: 'Niveau calcule a partir de trois facteurs: volume de cas reputation_crise, backlog critique d avis et presence de profils visibles.',
       tone: toneFromSeverity(warRoomModel.crisisLevel),
     },
   ]
@@ -130,10 +142,10 @@ export default function WarRoom() {
         title="Separer le social des avis pour agir vite."
         summary={
           warRoomModel.crisisLevel === 'critical'
-            ? 'La marque entre dans une phase de tension elevee: les posts critiques circulent vite et le backlog d avis non traites cree une seconde couche de risque.'
-            : 'Le risque reste pilotable, mais il faut tenir deux fronts distincts: la traction sociale d un cote, la satisfaction et la reponse aux avis de l autre.'
+            ? 'Fnac Darty entre dans une phase de tension elevee: les posts critiques circulent vite et le backlog d avis non traites cree une seconde couche de risque.'
+            : 'Le risque reste pilotable, mais il faut tenir deux fronts distincts: la propagation sociale critique d un cote, et le traitement des cas crise de l autre.'
         }
-        whyItMatters="Le social montre la propagation. Les avis montrent la satisfaction et la dette de reponse."
+        whyItMatters="Le social montre la propagation du risque. reputation_crise montre les cas deja qualifies negatif/crise. Le backlog montre la dette de traitement."
         whatNow={
           warRoomModel.reviewReputation.backlog.length > 0
             ? `Priorite immediate: absorber ${warRoomModel.reviewReputation.backlog.length} avis severes sans reponse et neutraliser les posts a plus forte traction.`
@@ -145,18 +157,18 @@ export default function WarRoom() {
           { label: 'Generer le PDF', to: '/comex', kind: 'ghost' },
         ]}
         stats={[
-          { label: 'Niveau crise', value: warRoomModel.crisisLevel.toUpperCase(), sub: 'lecture fusionnee mais non melangee' },
-          { label: 'Flux social', value: warRoomModel.social.total.toLocaleString('fr-FR'), sub: `${warRoomModel.social.engagement.toLocaleString('fr-FR')} interactions` },
-          { label: 'Backlog avis', value: warRoomModel.reviewReputation.backlog.length.toLocaleString('fr-FR'), sub: 'cas critiques sans owner_response' },
-          { label: 'Auteurs a risque', value: warRoomModel.signals.find((signal) => signal.id === 'verified-critics')?.value || '0', sub: 'profils verifies ou forte audience' },
+          { label: 'Mentions negatives', value: warRoomModel.social.negativeTotal.toLocaleString('fr-FR'), sub: 'Source: social_mentions', info: 'Mentions negatives detectees dans les flux sociaux marque.' },
+          { label: 'Engagement critique', value: warRoomModel.social.engagement.toLocaleString('fr-FR'), sub: 'Source: social_mentions', info: 'Interactions cumulees sur les mentions critiques detectees.' },
+          { label: 'Cas crise', value: warRoomModel.reviewReputation.total.toLocaleString('fr-FR'), sub: 'Source: reputation_crise', info: 'Volume de cas deja qualifies negatif/crise dans reputation_crise.' },
+          { label: 'Backlog critique', value: warRoomModel.reviewReputation.backlog.length.toLocaleString('fr-FR'), sub: 'Source: voix_client_cx + scraping_brand', info: 'Avis severes provenant des bases clients marque sans reponse visible du proprietaire.' },
         ]}
       />
 
       <GlobalFiltersBar />
 
       <StrategicSection
-        title="Social traction"
-        subtitle="Ce bloc suit la propagation et les auteurs a risque."
+        title="Propagation sociale"
+        subtitle="4 KPI relies a une seule base: social_mentions."
         actions={<Link to="/battle-matrix" className="btn btn-ghost btn-sm">Voir la concurrence</Link>}
       >
         <div className="lane-panel social-lane">
@@ -167,22 +179,21 @@ export default function WarRoom() {
                 label={signal.label}
                 value={signal.value}
                 note={signal.note}
+                info={signal.info}
                 tone={signal.tone}
               />
             ))}
           </div>
 
           <div className="strategic-grid-2">
-            <ChartCard title="Traction sociale 21 jours" icon="SOC" meta="positif, negatif, neutre">
+            <ChartCard title="Mentions negatives 21 jours" icon="SOC" meta="flux social critique" info="Serie quotidienne des mentions negatives issues de social_mentions. On ne montre pas les posts positifs ici car ils ne servent pas a lire une crise.">
               <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={warRoomModel.social.volumeSeries}>
+                <AreaChart data={warRoomModel.social.negativeSeries}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(value) => value.slice(5)} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="Negative" stackId="a" stroke="#F43F5E" fill="#F43F5E" fillOpacity={0.24} />
-                  <Area type="monotone" dataKey="Positive" stackId="a" stroke="#10B981" fill="#10B981" fillOpacity={0.18} />
-                  <Area type="monotone" dataKey="Neutral" stackId="a" stroke="#F59E0B" fill="#F59E0B" fillOpacity={0.16} />
+                  <Area type="monotone" dataKey="value" stroke="#F43F5E" fill="#F43F5E" fillOpacity={0.24} />
                 </AreaChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -213,8 +224,8 @@ export default function WarRoom() {
       </StrategicSection>
 
       <StrategicSection
-        title="Avis et reputation"
-        subtitle="Ce bloc suit la satisfaction, l irritant et le backlog."
+        title="Cas crise et backlog"
+        subtitle="4 KPI relies a une seule base a la fois: reputation_crise pour les cas, voix_client_cx + scraping_brand pour le backlog."
         actions={<Link to="/voix-du-client" className="btn btn-ghost btn-sm">Voir les clients</Link>}
       >
         <div className="lane-panel review-lane">
@@ -225,22 +236,21 @@ export default function WarRoom() {
                 label={signal.label}
                 value={signal.value}
                 note={signal.note}
+                info={signal.info}
                 tone={signal.tone}
               />
             ))}
           </div>
 
           <div className="strategic-grid-2">
-            <ChartCard title="Pression reputation 21 jours" icon="REP" meta="evolution par sentiment">
+            <ChartCard title="Cas severes 21 jours" icon="REP" meta="gravite reputation_crise" info="Serie quotidienne des cas reputation_crise de severite high/critical. C est la meilleure vue pour suivre l intensite reelle de la crise.">
               <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={warRoomModel.reviewReputation.volumeSeries}>
+                <AreaChart data={warRoomModel.reviewReputation.severeSeries}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(value) => value.slice(5)} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="Negative" stackId="a" stroke="#F43F5E" fill="#F43F5E" fillOpacity={0.24} />
-                  <Area type="monotone" dataKey="Positive" stackId="a" stroke="#10B981" fill="#10B981" fillOpacity={0.18} />
-                  <Area type="monotone" dataKey="Neutral" stackId="a" stroke="#F59E0B" fill="#F59E0B" fillOpacity={0.16} />
+                  <Area type="monotone" dataKey="value" stroke="#F43F5E" fill="#F43F5E" fillOpacity={0.24} />
                 </AreaChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -253,14 +263,14 @@ export default function WarRoom() {
           </div>
 
           <div className="strategic-grid-2">
-            <ChartCard title="Plateformes sous tension" icon="PLAT" meta="negative rate par source">
+            <ChartCard title="Plateformes sous tension" icon="PLAT" meta="poids dans reputation_crise" info="Repartition des cas reputation_crise par plateforme. Le but est d identifier ou les cas se concentrent le plus, pas de recalculer un negatif rate.">
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={warRoomModel.reviewReputation.platforms.slice(0, 6)} barSize={18}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Bar dataKey="negativeRate" fill="#F97316" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="value" fill="#F97316" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -273,16 +283,16 @@ export default function WarRoom() {
                   <strong>{warRoomModel.reviewReputation.backlog.length}</strong>
                 </div>
                 <div className="compact-metric-row">
-                  <span>Volume negatif</span>
-                  <strong>{warRoomModel.reviewReputation.negativeRows.length}</strong>
+                  <span>Cas severes</span>
+                  <strong>{warRoomModel.reviewReputation.severeRows.length}</strong>
                 </div>
                 <div className="compact-metric-row">
                   <span>Plateforme la plus exposee</span>
                   <strong>{topPlatform?.name || 'n/a'}</strong>
                 </div>
                 <div className="compact-metric-row">
-                  <span>Negative rate de tete</span>
-                  <strong>{topPlatform ? `${topPlatform.negativeRate}%` : 'n/a'}</strong>
+                  <span>Cas severes sur la plateforme</span>
+                  <strong>{topPlatform ? `${topPlatformSevere}` : 'n/a'}</strong>
                 </div>
               </div>
             </div>

@@ -130,6 +130,21 @@ const SOCIAL_COMPETITOR_SOURCE_TABLE = {
   'Twitter/X': 'social_mentions_competitor',
 }
 
+function buildMassiveBatchRuns() {
+  return [
+    { label: 'Trustpilot Fnac Darty', apiFn: api.scrapeTrustpilot, payload: { ...withMassiveDefaults('trustpilot', BRAND_PRESETS.trustpilot), targetDb: 'scraping' } },
+    { label: 'Google Reviews Fnac Darty', apiFn: api.scrapeGoogleReviews, payload: { ...withMassiveDefaults('google', BRAND_PRESETS.google), targetDb: 'scraping' } },
+    { label: 'Twitter / X Fnac Darty', apiFn: api.scrapeTwitter, payload: { ...withMassiveDefaults('twitter', BRAND_PRESETS.twitter), targetDb: 'social' } },
+    { label: 'TikTok Fnac Darty', apiFn: api.scrapeTikTok, payload: { ...withMassiveDefaults('tiktok', BRAND_PRESETS.tiktok), targetDb: 'social' } },
+    { label: 'Facebook Fnac Darty', apiFn: api.scrapeFacebook, payload: { ...withMassiveDefaults('facebook', BRAND_PRESETS.facebook), targetDb: 'social' } },
+    { label: 'Trustpilot Boulanger', apiFn: api.scrapeTrustpilot, payload: { ...withMassiveDefaults('trustpilot', COMPETITOR_PRESETS.trustpilot), targetDb: 'competitor' } },
+    { label: 'Google Reviews Boulanger', apiFn: api.scrapeGoogleReviews, payload: { ...withMassiveDefaults('google', COMPETITOR_PRESETS.google), targetDb: 'competitor' } },
+    { label: 'Twitter / X Boulanger', apiFn: api.scrapeTwitter, payload: { ...withMassiveDefaults('twitter', COMPETITOR_PRESETS.twitter), targetDb: 'social_competitor' } },
+    { label: 'TikTok Boulanger', apiFn: api.scrapeTikTok, payload: { ...withMassiveDefaults('tiktok', COMPETITOR_PRESETS.tiktok), targetDb: 'social_competitor' } },
+    { label: 'Facebook Boulanger', apiFn: api.scrapeFacebook, payload: { ...withMassiveDefaults('facebook', COMPETITOR_PRESETS.facebook), targetDb: 'social_competitor' } },
+  ]
+}
+
 function withMassiveDefaults(scraperId, params) {
   const next = { ...params, massive: true }
 
@@ -684,6 +699,7 @@ export default function ScrapingHub() {
   const [streamConnected, setStreamConnected] = useState(false)
   const [latestRunBySource, setLatestRunBySource] = useState({})
   const [activeRunBySource, setActiveRunBySource] = useState({})
+  const [globalRunState, setGlobalRunState] = useState({ status: 'idle', summary: null, error: null })
 
   const loadLogs = useCallback(async () => {
     const data = await api.getScrapingLogs()
@@ -742,9 +758,71 @@ export default function ScrapingHub() {
     }, {})
   }, [latestRunBySource, visibleLiveEvents])
 
+  const handleMassiveGlobalRun = async () => {
+    setGlobalRunState({ status: 'running', summary: null, error: null })
+    const batchRuns = buildMassiveBatchRuns()
+
+    try {
+      const results = await Promise.allSettled(batchRuns.map((run) => run.apiFn(run.payload)))
+      const successCount = results.filter((result) => result.status === 'fulfilled').length
+      const failureCount = results.length - successCount
+      const inserted = results.reduce((sum, result) => {
+        if (result.status !== 'fulfilled') return sum
+        return sum + Number(result.value?.inserted || result.value?.records_added || 0)
+      }, 0)
+      const failedLabels = results
+        .map((result, index) => (result.status === 'rejected' ? batchRuns[index].label : null))
+        .filter(Boolean)
+
+      setGlobalRunState({
+        status: failureCount ? 'partial' : 'success',
+        error: null,
+        summary: { successCount, failureCount, inserted, failedLabels }
+      })
+    } catch (error) {
+      setGlobalRunState({ status: 'error', summary: null, error: error.message })
+    } finally {
+      loadLogs()
+    }
+  }
+
   return (
     <div>
       <ScheduleCard />
+      <div className="card" style={{ marginBottom: 20, background: 'linear-gradient(135deg, rgba(18,73,69,0.08) 0%, rgba(255,255,255,0.98) 60%)' }}>
+        <div className="card-header" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <div className="card-title">Recherche massive globale</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6, maxWidth: 820, lineHeight: 1.6 }}>
+              Lance en une fois les 10 collectes prioritaires: Trustpilot, Google Reviews, Twitter / X, TikTok et Facebook pour Fnac Darty puis pour Boulanger.
+              Les flux sociaux alimentent <strong>social_mentions</strong> et <strong>social_mentions_competitor</strong>. Les avis alimentent <strong>scraping_brand</strong> et <strong>scraping_competitor</strong>.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={handleMassiveGlobalRun} disabled={globalRunState.status === 'running'} style={{ minWidth: 250, minHeight: 52, fontSize: 15, fontWeight: 700 }}>
+            {globalRunState.status === 'running' ? 'Recherche massive en cours...' : 'Tout scraper en meme temps'}
+          </button>
+        </div>
+        <div style={{ padding: '0 20px 18px', display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          {['Trustpilot', 'Google Reviews', 'Twitter / X', 'TikTok', 'Facebook', 'Fnac Darty', 'Boulanger'].map((item) => (
+            <span key={item} className="badge badge-primary" style={{ fontSize: 11 }}>{item}</span>
+          ))}
+        </div>
+        {globalRunState.summary && (
+          <div style={{ padding: '0 20px 20px' }}>
+            <div style={{ background: globalRunState.status === 'partial' ? 'rgba(245, 158, 11, 0.12)' : 'var(--positive-light)', border: `1px solid ${globalRunState.status === 'partial' ? 'rgba(245, 158, 11, 0.35)' : '#B2E8D8'}`, borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: 12, color: globalRunState.status === 'partial' ? '#B45309' : 'var(--positive)' }}>
+              {globalRunState.summary.successCount} runs OK | {globalRunState.summary.failureCount} en echec | {globalRunState.summary.inserted.toLocaleString('fr-FR')} lignes annoncees
+              {globalRunState.summary.failedLabels.length > 0 ? ` | echec: ${globalRunState.summary.failedLabels.join(', ')}` : ''}
+            </div>
+          </div>
+        )}
+        {globalRunState.error && (
+          <div style={{ padding: '0 20px 20px' }}>
+            <div style={{ background: 'var(--negative-light)', border: '1px solid #F8BBD9', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: 12, color: 'var(--negative)' }}>
+              Erreur globale: {globalRunState.error}
+            </div>
+          </div>
+        )}
+      </div>
       <div className="scraper-grid">
         {SCRAPERS.map((scraper) => (
           <div key={scraper.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

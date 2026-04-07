@@ -1,3 +1,5 @@
+import ExpandableText from './ExpandableText.jsx'
+
 export default function DataTable({ columns, rows, emptyMessage = 'Aucune donnée', onRowClick, rowKey }) {
   if (!rows || rows.length === 0) {
     return (
@@ -13,7 +15,7 @@ export default function DataTable({ columns, rows, emptyMessage = 'Aucune donné
       <table className="data-table">
         <thead>
           <tr>
-            {columns.map(col => (
+            {columns.map((col) => (
               <th key={col.key} style={col.width ? { width: col.width } : {}}>
                 {col.label}
               </th>
@@ -27,11 +29,11 @@ export default function DataTable({ columns, rows, emptyMessage = 'Aucune donné
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               style={onRowClick ? { cursor: 'pointer' } : undefined}
             >
-              {columns.map(col => (
+              {columns.map((col) => (
                 <td key={col.key}>
                   {col.render ? col.render(row[col.key], row) : (
                     col.truncate
-                      ? <span className="text-truncate" title={row[col.key]}>{row[col.key] || '—'}</span>
+                      ? <ExpandableText text={row[col.key]} maxLength={120} className="text-truncate-wrap" />
                       : (row[col.key] ?? '—')
                   )}
                 </td>

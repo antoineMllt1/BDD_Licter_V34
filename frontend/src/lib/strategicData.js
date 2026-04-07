@@ -381,6 +381,11 @@ function summarizeReviewScope(rows) {
   const negativeRows = rows.filter((row) => row.sentiment === 'Negative')
   const positiveRows = rows.filter((row) => row.sentiment === 'Positive')
   const criticalRows = rows.filter((row) => severityRank(row.severity) <= 1)
+  const sourceMix = rows.reduce((accumulator, row) => {
+    const key = row.source || 'unknown'
+    accumulator[key] = (accumulator[key] || 0) + 1
+    return accumulator
+  }, {})
   const storeGroups = groupBy(rows.filter((row) => row.storeCity || row.storeName), (row) => row.storeCity || row.storeName)
 
   const stores = Object.entries(storeGroups)
@@ -408,6 +413,7 @@ function summarizeReviewScope(rows) {
     positiveRate: percentage(positiveRows.length, rows.length),
     criticalRate: percentage(criticalRows.length, rows.length),
     topEvidence: topEvidence(negativeRows, 3, 60),
+    sourceMix,
     stores,
   }
 }
@@ -488,13 +494,87 @@ function buildJourneySteps(rows) {
     .map((row) => ({ ...row, label: JOURNEY_LABELS[row.step] || row.step }))
 }
 
+function inferOwnerFromActionRow(row) {
+  const normalized = normalizeSearchText([
+    row.recommendedAction,
+    row.painPoint,
+    row.category,
+    row.topic,
+    row.dimension,
+    row.text,
+    row.platform,
+  ].filter(Boolean).join(' '))
+
+  if (!normalized) return row.teamOwner || 'A assigner'
+  if (normalized.includes('sav') || normalized.includes('garantie') || normalized.includes('retour') || normalized.includes('support')) return 'Service Client / SAV'
+  if (normalized.includes('livraison') || normalized.includes('delai') || normalized.includes('transport')) return 'Operations / Logistique'
+  if (normalized.includes('prix') || normalized.includes('promo') || normalized.includes('tarif')) return 'Pricing / Merchandising'
+  if (normalized.includes('vendeur') || normalized.includes('accueil') || normalized.includes('magasin') || normalized.includes('reseau')) return 'Retail Operations'
+  if (normalized.includes('social') || normalized.includes('twitter') || normalized.includes('tiktok') || normalized.includes('facebook') || normalized.includes('reddit') || normalized.includes('influence')) return 'Social Media / Brand'
+  if (normalized.includes('benchmark') || normalized.includes('concurrent') || normalized.includes('boulanger') || normalized.includes('positionnement')) return 'Marketing / Offre'
+  return row.teamOwner || 'A assigner'
+}
+
+function inferImpactFromActionRow(row) {
+  return row.businessImpact
+    || (row.family === 'social'
+      ? 'Calmer la propagation sociale et reprendre la main sur le narratif'
+      : row.family === 'benchmark'
+        ? 'Redresser le terrain concurrentiel sur la dimension qui derape'
+        : row.family === 'reputation'
+          ? 'Reduire le risque reputa tionnel et le backlog critique'
+          : 'Traiter l irritant client le plus visible')
+}
+
+function inferSeverityFromActionRow(row) {
+  if (row.severity) return row.severity
+  if (row.family === 'social' && row.sentiment === 'Negative' && row.engagement >= 15) return 'high'
+  if (row.family === 'benchmark' && row.sentiment === 'Negative') return 'medium'
+  if (row.family === 'reputation') return 'high'
+  return 'medium'
+}
+
+function inferUrgencyFromActionRow(row) {
+  if (row.urgencyLevel) return row.urgencyLevel
+  if (row.family === 'social' && row.sentiment === 'Negative' && (row.isVerified || row.engagement >= 20)) return 'critical'
+  if (row.family === 'reputation' && !row.ownerResponse) return 'critical'
+  if (row.family === 'benchmark' && row.sentiment === 'Negative') return 'high'
+  return inferSeverityFromActionRow(row)
+}
+
+function inferRecommendedAction(row) {
+  if (row.recommendedAction) return row.recommendedAction
+
+  if (row.family === 'social') {
+    const subject = row.platform ? `${row.platform.toLowerCase()}` : 'le flux social'
+    return `Couper la traction negative sur ${subject}`
+  }
+
+  if (row.family === 'benchmark') {
+    const dimension = row.dimension || row.topic || row.category || 'la dimension concurrentielle'
+    return `Reprendre la main sur ${safeText(dimension).toLowerCase()}`
+  }
+
+  if (row.painPoint || row.category) {
+    return `Corriger ${safeText(row.painPoint || row.category).toLowerCase()}`
+  }
+
+  return null
+}
+
 function buildActionItems(rows) {
   const grouped = {}
 
   rows
-    .filter((row) => row.recommendedAction || row.isActionable)
+    .filter((row) => {
+      if (row.recommendedAction || row.isActionable) return true
+      if (row.family === 'reputation' && row.sentiment === 'Negative') return true
+      if (row.family === 'social' && row.sentiment === 'Negative' && (row.engagement >= 10 || row.isVerified)) return true
+      if (row.family === 'benchmark' && row.sentiment === 'Negative') return true
+      return false
+    })
     .forEach((row) => {
-      const label = row.recommendedAction || row.painPoint || row.category
+      const label = inferRecommendedAction(row) || row.painPoint || row.category || row.topic || row.dimension
       if (!label) return
 
       if (!grouped[label]) {
@@ -508,17 +588,21 @@ function buildActionItems(rows) {
           impacts: {},
           categories: {},
           sides: {},
+          families: {},
+          sources: {},
           rows: [],
         }
       }
 
       grouped[label].count += 1
-      grouped[label].owners[row.teamOwner || 'A assigner'] = (grouped[label].owners[row.teamOwner || 'A assigner'] || 0) + 1
+      grouped[label].owners[inferOwnerFromActionRow(row)] = (grouped[label].owners[inferOwnerFromActionRow(row)] || 0) + 1
       grouped[label].categories[row.category || 'Autre'] = (grouped[label].categories[row.category || 'Autre'] || 0) + 1
       grouped[label].sides[row.side || 'brand'] = (grouped[label].sides[row.side || 'brand'] || 0) + 1
-      if (row.businessImpact) grouped[label].impacts[row.businessImpact] = (grouped[label].impacts[row.businessImpact] || 0) + 1
-      if (row.severity) grouped[label].severity[row.severity] = (grouped[label].severity[row.severity] || 0) + 1
-      if (row.urgencyLevel) grouped[label].urgency[row.urgencyLevel] = (grouped[label].urgency[row.urgencyLevel] || 0) + 1
+      grouped[label].families[row.family || 'other'] = (grouped[label].families[row.family || 'other'] || 0) + 1
+      grouped[label].sources[row.source || 'unknown'] = (grouped[label].sources[row.source || 'unknown'] || 0) + 1
+      grouped[label].impacts[inferImpactFromActionRow(row)] = (grouped[label].impacts[inferImpactFromActionRow(row)] || 0) + 1
+      grouped[label].severity[inferSeverityFromActionRow(row)] = (grouped[label].severity[inferSeverityFromActionRow(row)] || 0) + 1
+      grouped[label].urgency[inferUrgencyFromActionRow(row)] = (grouped[label].urgency[inferUrgencyFromActionRow(row)] || 0) + 1
       grouped[label].rows.push(row)
     })
 
@@ -532,14 +616,16 @@ function buildActionItems(rows) {
         count: item.count,
         severity,
         urgency,
-        owner: dominantEntry(item.owners, 'A assigner'),
-        impact: dominantEntry(item.impacts, 'Impact a clarifier'),
-        category: dominantEntry(item.categories, 'Autre'),
-        side: dominantEntry(item.sides, 'brand'),
-        now: severityRank(severity) <= 1 || severityRank(urgency) <= 1,
-        proofs: topEvidence(item.rows, 2, 50),
-      }
-    })
+          owner: dominantEntry(item.owners, 'A assigner'),
+          impact: dominantEntry(item.impacts, 'Impact a clarifier'),
+          category: dominantEntry(item.categories, 'Autre'),
+          side: dominantEntry(item.sides, 'brand'),
+          family: dominantEntry(item.families, 'other'),
+          sourceSummary: Object.entries(item.sources).sort((left, right) => right[1] - left[1]).slice(0, 3).map(([source, count]) => `${count} ${source}`).join(' | '),
+          now: severityRank(severity) <= 1 || severityRank(urgency) <= 1,
+          proofs: topEvidence(item.rows, 5, 40),
+        }
+      })
     .sort((left, right) => {
       const severityDelta = severityRank(left.severity) - severityRank(right.severity)
       if (severityDelta !== 0) return severityDelta
@@ -651,13 +737,15 @@ function buildBattleModel(rows) {
 
 function buildWarRoomModel({ socialBrandRows, socialCompetitorRows, reputationRows, brandReviewRows }) {
   const socialNegative = socialBrandRows.filter((row) => row.sentiment === 'Negative')
-  const reputationNegative = reputationRows.filter((row) => row.side === 'brand' && row.sentiment === 'Negative')
+  const reputationBrandRows = reputationRows.filter((row) => row.side === 'brand')
+  const reputationNegative = reputationBrandRows.filter((row) => row.sentiment === 'Negative')
+  const reputationSevere = reputationBrandRows.filter((row) => severityRank(row.severity) <= 1)
   const reviewBacklog = brandReviewRows.filter((row) => severityRank(row.severity) <= 1 && !row.ownerResponse)
   const verifiedCritics = socialNegative.filter((row) => row.isVerified).length + reputationNegative.filter((row) => row.isVerified).length
   const socialCriticalPosts = sortByDateDesc(socialNegative).sort((left, right) => right.engagement - left.engagement).slice(0, 6)
   const competitorBuzz = sortByDateDesc(socialCompetitorRows).sort((left, right) => right.engagement - left.engagement).slice(0, 4)
-  const reviewRiskRows = sortByDateDesc([...reputationNegative, ...reviewBacklog]).slice(0, 6)
-  const crisisLevel = reviewBacklog.length > 5 || verifiedCritics > 3 || reputationNegative.length > 30
+  const reviewRiskRows = sortByDateDesc([...reputationSevere, ...reviewBacklog]).slice(0, 6)
+  const crisisLevel = reviewBacklog.length > 5 || verifiedCritics > 3 || reputationBrandRows.length > 30
     ? 'critical'
     : reviewBacklog.length > 2 || verifiedCritics > 0
       ? 'high'
@@ -687,10 +775,10 @@ function buildWarRoomModel({ socialBrandRows, socialCompetitorRows, reputationRo
     },
     {
       id: 'review-pressure',
-      title: 'Pression reputation',
-      severity: reputationNegative.length > 25 ? 'critical' : reputationNegative.length > 10 ? 'high' : 'medium',
-      value: `${percentage(reputationNegative.length, reputationRows.filter((row) => row.side === 'brand').length)}%`,
-      note: 'part negative de la base reputation',
+      title: 'Cas reputation ouverts',
+      severity: reputationBrandRows.length > 25 ? 'critical' : reputationBrandRows.length > 10 ? 'high' : 'medium',
+      value: `${reputationBrandRows.length}`,
+      note: 'volume reputation_crise cote marque, deja filtre negatif/crise',
     },
   ]
 
@@ -701,23 +789,31 @@ function buildWarRoomModel({ socialBrandRows, socialCompetitorRows, reputationRo
       brand: socialBrandRows,
       competitor: socialCompetitorRows,
       total: socialBrandRows.length,
+      negativeTotal: socialNegative.length,
       engagement: sumBy(socialBrandRows, (row) => row.engagement),
       verifiedAuthors: socialBrandRows.filter((row) => row.isVerified).length,
       topRiskPosts: socialCriticalPosts,
       competitorBuzz,
+      negativeSeries: createDateSeries(socialNegative, () => 1, 21),
       volumeSeries: createSentimentSeries(socialBrandRows, 21),
     },
     reviewReputation: {
-      rows: reputationRows.filter((row) => row.side === 'brand'),
+      rows: reputationBrandRows,
+      total: reputationBrandRows.length,
       negativeRows: reputationNegative,
+      severeRows: reputationSevere,
       backlog: reviewBacklog,
       topRiskRows: reviewRiskRows,
-      volumeSeries: createSentimentSeries(reputationRows.filter((row) => row.side === 'brand'), 21),
-      platforms: Object.entries(groupBy(reputationRows.filter((row) => row.side === 'brand'), (row) => row.platform))
+      severeRate: percentage(reputationSevere.length, reputationBrandRows.length),
+      incidentSeries: createDateSeries(reputationBrandRows, () => 1, 21),
+      severeSeries: createDateSeries(reputationSevere, () => 1, 21),
+      platforms: Object.entries(groupBy(reputationBrandRows, (row) => row.platform))
         .map(([name, platformRows]) => ({
           name,
           value: platformRows.length,
-          negativeRate: percentage(platformRows.filter((row) => row.sentiment === 'Negative').length, platformRows.length),
+          share: percentage(platformRows.length, reputationBrandRows.length),
+          severeCount: platformRows.filter((row) => severityRank(row.severity) <= 1).length,
+          engagement: sumBy(platformRows, (row) => row.engagement),
         }))
         .sort((left, right) => right.value - left.value),
     },
@@ -732,8 +828,8 @@ function buildExecutiveSnapshot({ warRoomModel, battleModel, brandCxModel, actio
   const brandScore = Math.max(0, Math.min(100, Math.round((safeNumber(brandCxModel.summary.avgRating) * 16) + (100 - brandCxModel.summary.negativeRate))))
 
   const whatHappens = warRoomModel.crisisLevel === 'critical'
-    ? `La marque subit une tension reputationnelle elevee, alimentee par ${warRoomModel.signals[0].value} signaux sociaux negatifs et un backlog critique de ${warRoomModel.signals[2].value} avis sans reponse.`
-    : `La marque reste pilotable, mais la pression se concentre sur ${topFriction ? topFriction.label.toLowerCase() : 'les irritants clients'} et sur ${weakestBattle ? weakestBattle.label.toLowerCase() : 'quelques dimensions concurrentielles'}.`
+    ? `Fnac Darty subit une tension reputationnelle elevee, alimentee par ${warRoomModel.signals[0].value} signaux sociaux negatifs et un backlog critique de ${warRoomModel.signals[2].value} avis sans reponse.`
+    : `Fnac Darty reste pilotable, mais la pression se concentre sur ${topFriction ? topFriction.label.toLowerCase() : 'les irritants clients'} et sur ${weakestBattle ? weakestBattle.label.toLowerCase() : 'quelques dimensions concurrentielles'}.`
 
   const whyItMatters = weakestBattle
     ? `Boulanger prend l'avantage sur ${weakestBattle.label} tandis que Fnac Darty garde de la force sur ${strongestBattle ? strongestBattle.label : 'ses dimensions coeur'}. L'enjeu n'est pas seulement d'eteindre le bruit, mais de proteger le territoire de marque.`
@@ -1184,8 +1280,22 @@ export function useStrategicDashboardData() {
   }), [filtered.reviewCompetitorRows])
 
   const actionRows = useMemo(
-    () => [...filtered.reviewBrandRows, ...filtered.reviewCompetitorRows, ...filtered.reputationRows],
-    [filtered.reviewBrandRows, filtered.reviewCompetitorRows, filtered.reputationRows]
+    () => [
+      ...filtered.reviewBrandRows,
+      ...filtered.reviewCompetitorRows,
+      ...filtered.reputationRows,
+      ...filtered.socialBrandRows,
+      ...filtered.socialCompetitorRows,
+      ...filtered.benchmarkRows,
+    ],
+    [
+      filtered.reviewBrandRows,
+      filtered.reviewCompetitorRows,
+      filtered.reputationRows,
+      filtered.socialBrandRows,
+      filtered.socialCompetitorRows,
+      filtered.benchmarkRows,
+    ]
   )
 
   const actionModel = useMemo(() => buildActionItems(actionRows), [actionRows])

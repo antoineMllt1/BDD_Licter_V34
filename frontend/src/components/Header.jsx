@@ -4,17 +4,18 @@ import { supabase } from '../lib/supabase.js'
 import { useFilters } from '../lib/FilterContext.jsx'
 
 const PAGE_META = {
-  '/': { title: 'Cockpit', subtitle: 'Les signaux qui comptent maintenant.' },
-  '/war-room': { title: 'Crise', subtitle: 'Social et avis, lus separement.' },
-  '/battle-matrix': { title: 'Concurrence', subtitle: 'Ou la marque gagne, cede, ou peut reprendre du terrain.' },
-  '/voix-du-client': { title: 'Clients', subtitle: 'Irritants, parcours et preuves utiles.' },
-  '/magasins': { title: 'Magasins', subtitle: 'Risque local, hotspots et activations.' },
-  '/action-center': { title: 'Actions', subtitle: 'Ce qu il faut lancer, assigner, suivre.' },
-  '/scraping': { title: 'Collecte', subtitle: 'Sources actives et pipelines.' },
-  '/scraping/results': { title: 'Historique', subtitle: 'Dernieres collectes visibles.' },
+  '/': { title: 'Cockpit COMEX', subtitle: 'Les signaux qui comptent maintenant.' },
+  '/war-room': { title: 'War Room', subtitle: 'Crise social et reputation, lus separement.' },
+  '/social': { title: 'Social Media', subtitle: 'Conversation, traction et auteurs visibles.' },
+  '/battle-matrix': { title: 'Battle Matrix', subtitle: 'Ou Fnac Darty gagne, cede, ou peut reprendre du terrain.' },
+  '/voix-du-client': { title: 'Voix du Client', subtitle: 'Irritants, parcours et preuves utiles.' },
+  '/magasins': { title: 'Pilotage Magasins', subtitle: 'Risque local, hotspots et activations.' },
+  '/action-center': { title: 'Action Center', subtitle: 'Ce qu il faut lancer, assigner, suivre.' },
+  '/scraping': { title: 'Hub Scraping', subtitle: 'Sources actives et pipelines de collecte.' },
+  '/scraping/results': { title: 'Resultats Scraping', subtitle: 'Dernieres collectes visibles.' },
   '/automation': { title: 'Automations', subtitle: 'Scenarios et execution back-office.' },
-  '/data': { title: 'Data', subtitle: 'Imports, exports, coherence.' },
-  '/comex': { title: 'Rapport PDF', subtitle: 'Memo COMEX et export.' },
+  '/data': { title: 'Base de Donnees', subtitle: 'Imports, exports et coherence des tables.' },
+  '/comex': { title: 'Rapport COMEX', subtitle: 'Memo COMEX et export PDF.' },
 }
 
 function isBackOfficeRoute(pathname) {
