@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { FilterProvider } from './lib/FilterContext.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import Header from './components/Header.jsx'
+import ChatBot from './components/ChatBot.jsx'
 
 const ExecutiveCockpit = lazy(() => import('./pages/ExecutiveCockpit.jsx'))
 const WarRoom = lazy(() => import('./pages/WarRoom.jsx'))
@@ -65,6 +66,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      <ChatBot />
     </FilterProvider>
   )
 }

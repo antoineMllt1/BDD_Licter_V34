@@ -18,6 +18,7 @@ pnpm-debug.log*
 # Build output
 /dist
 /build
+frontend/dist
 
 # OS files
 .DS_Store

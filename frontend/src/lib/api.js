@@ -50,6 +50,9 @@ export const api = {
   getMlEnrichmentStatus: (refresh = false) => req('GET', `/ml/enrich/status${refresh ? '?refresh=1' : ''}`),
   runMlEnrichment: (body) => req('POST', '/ml/enrich/run', body),
 
+  // Chatbot
+  chat: (body) => req('POST', '/chat', body),
+
   // COMEX PDF (special: returns blob)
   generateComex: async (body) => {
     const res = await fetch(`${BASE}/comex/generate`, {

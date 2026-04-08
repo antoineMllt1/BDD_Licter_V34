@@ -76,6 +76,27 @@ function isSectionAvailable(section, activeSources) {
   return section.sources.some((source) => activeSources.includes(source))
 }
 
+function formatComexErrorMessage(message) {
+  const text = String(message || '').trim()
+  const normalized = text.toLowerCase()
+
+  if (!text) return 'Erreur generation PDF'
+
+  if (
+    normalized.includes('overloaded_error') ||
+    normalized.includes('529') ||
+    normalized.includes('temporairement surcharge')
+  ) {
+    return 'Anthropic est temporairement surcharge. Relancez la generation du memo dans quelques secondes.'
+  }
+
+  if (normalized.includes('timeout') || normalized.includes('timed out')) {
+    return 'La generation du memo a pris trop de temps. Relancez la generation.'
+  }
+
+  return text
+}
+
 export default function ComexReport() {
   const [config, setConfig] = useState({
     brand: 'Fnac Darty',
@@ -150,7 +171,7 @@ export default function ComexReport() {
       URL.revokeObjectURL(url)
       setSuccess(true)
     } catch (err) {
-      setError(err.message)
+      setError(formatComexErrorMessage(err.message))
     } finally {
       setGenerating(false)
     }

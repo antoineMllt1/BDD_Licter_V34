@@ -36,6 +36,7 @@ const THEME = {
 
 const DEFAULT_SECTIONS = ['executive', 'war_room', 'battle_matrix', 'voice_of_customer', 'action_center']
 const DEFAULT_MODEL = process.env.ANTHROPIC_COMEX_MODEL || 'claude-sonnet-4-6'
+const DEFAULT_ANTHROPIC_RETRIES = 4
 
 const DATA_SOURCE_PRESETS = {
   all: ['reputation', 'benchmark', 'cx'],
@@ -84,6 +85,60 @@ function getAnthropicClient() {
     anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   }
   return anthropicClient
+}
+
+function getAnthropicErrorPayload(error) {
+  if (!error || typeof error !== 'object') return null
+  const payload = error.error
+  if (!payload || typeof payload !== 'object') return null
+  return payload.error && typeof payload.error === 'object' ? payload.error : payload
+}
+
+function getAnthropicErrorType(error) {
+  return safeText(getAnthropicErrorPayload(error)?.type).toLowerCase()
+}
+
+function getAnthropicErrorMessage(error) {
+  return safeText(getAnthropicErrorPayload(error)?.message || error?.message)
+}
+
+function isRetryableAnthropicError(error) {
+  const status = safeNumber(error?.status)
+  const type = getAnthropicErrorType(error)
+
+  if ([408, 409, 429, 529].includes(status)) return true
+  if (status >= 500) return true
+
+  return ['overloaded_error', 'rate_limit_error', 'timeout_error', 'api_error'].includes(type)
+}
+
+function formatComexGenerationError(error) {
+  const status = safeNumber(error?.status)
+  const type = getAnthropicErrorType(error)
+  const providerMessage = getAnthropicErrorMessage(error)
+
+  if (status === 401 || status === 403 || ['authentication_error', 'permission_error'].includes(type)) {
+    return 'Acces Anthropic refuse. Verifiez ANTHROPIC_API_KEY dans backend/.env.'
+  }
+
+  if (isRetryableAnthropicError(error)) {
+    return 'Anthropic est temporairement surcharge. Relancez la generation du memo dans quelques secondes.'
+  }
+
+  if (providerMessage && providerMessage !== error?.message) {
+    return `Erreur generation PDF: ${providerMessage}`
+  }
+
+  return safeText(error?.message, 'Erreur generation PDF')
+}
+
+function getComexErrorStatus(error) {
+  const status = safeNumber(error?.status)
+
+  if (isRetryableAnthropicError(error)) return 503
+  if (status >= 400 && status < 600) return status
+
+  return 500
 }
 
 function safeText(value, fallback = '') {
@@ -1312,12 +1367,15 @@ export async function generateComexPdf(req, res) {
       includeAppendix
     })
 
-    const message = await getAnthropicClient().messages.create({
-      model: DEFAULT_MODEL,
-      max_tokens: detailLevel === 'deep' ? 2600 : detailLevel === 'synthesis' ? 1500 : 2100,
-      temperature: 0.5,
-      messages: [{ role: 'user', content: prompt }]
-    })
+    const message = await getAnthropicClient().messages.create(
+      {
+        model: DEFAULT_MODEL,
+        max_tokens: detailLevel === 'deep' ? 2600 : detailLevel === 'synthesis' ? 1500 : 2100,
+        temperature: 0.5,
+        messages: [{ role: 'user', content: prompt }]
+      },
+      { maxRetries: DEFAULT_ANTHROPIC_RETRIES }
+    )
 
     const responseText = message.content.find((part) => part.type === 'text')?.text || ''
     const blueprint = parseBlueprint(responseText, {
@@ -1362,8 +1420,18 @@ export async function generateComexPdf(req, res) {
 
     doc.end()
   } catch (error) {
+    console.error('[comex] PDF generation failed', {
+      status: error?.status,
+      type: getAnthropicErrorType(error),
+      requestId: error?.requestID || error?.error?.request_id,
+      message: getAnthropicErrorMessage(error)
+    })
+
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message })
+      res.status(getComexErrorStatus(error)).json({
+        error: formatComexGenerationError(error),
+        retryable: isRetryableAnthropicError(error)
+      })
     }
   }
 }

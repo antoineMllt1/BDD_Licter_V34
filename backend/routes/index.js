@@ -25,6 +25,7 @@ import {
   runMlEnrichment
 } from '../controllers/ml.controller.js'
 import { generateComexPdf } from '../controllers/comex.controller.js'
+import { chat } from '../controllers/chat.controller.js'
 
 const router = Router()
 
@@ -53,5 +54,8 @@ router.post('/ml/enrich/run', runMlEnrichment)
 
 // COMEX Report
 router.post('/comex/generate', generateComexPdf)
+
+// Chatbot
+router.post('/chat', chat)
 
 export default router

@@ -576,7 +576,6 @@ export default function SocialMedia() {
             <KPICard label="Mentions totales" value={activeStats.total.toLocaleString('fr-FR')} sub={sourceMixLabel} color="primary" />
             <KPICard label="Engagement total" value={(activeStats.totalLikes + activeStats.totalShares + activeStats.totalReplies).toLocaleString('fr-FR')} sub={`${activeStats.totalLikes.toLocaleString('fr-FR')} likes | ${activeStats.totalViews.toLocaleString('fr-FR')} vues`} color="blue" />
             <KPICard label="Sentiment negatif" value={activeStats.total > 0 ? `${activeStats.negPct}%` : '-'} sub={`${activeStats.neg.toLocaleString('fr-FR')} mentions negatives`} color={activeStats.negPct > 30 ? 'negative' : 'neutral'} />
-            <KPICard label="Enrichissement IA" value={`${activeStats.enrichPct}%`} sub={`${activeStats.enriched.toLocaleString('fr-FR')} / ${activeStats.total.toLocaleString('fr-FR')} traitees`} color={activeStats.enrichPct > 80 ? 'positive' : activeStats.enrichPct > 40 ? 'neutral' : 'negative'} />
             <KPICard label="Comptes verifies" value={activeStats.verified.toLocaleString('fr-FR')} sub={`Followers moy. ${activeStats.avgFollowers.toLocaleString('fr-FR')}`} color="primary" />
             <KPICard label="Plateformes actives" value={Object.values(activeStats.byPlatform).filter(Boolean).length} sub={SOCIAL_PLATFORMS.filter((platform) => activeStats.byPlatform[platform] > 0).join(' | ') || 'Aucune'} color="blue" />
           </div>
