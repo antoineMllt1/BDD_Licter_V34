@@ -35,7 +35,8 @@ const SCRAPERS = [
     name: 'Trustpilot',
     icon: 'T',
     iconBg: '#FFE8D6',
-    desc: 'Avis Trustpilot avec deduplication.',
+    desc: 'Avis Trustpilot avec deduplication. Necessite un navigateur local — non disponible sur Vercel.',
+    localOnly: true,
     type: 'reviews',
     defaultTarget: 'scraping',
     massiveLabel: 'Recherche massive',
@@ -51,7 +52,8 @@ const SCRAPERS = [
     name: 'Google Reviews',
     icon: 'G',
     iconBg: '#E8F4FD',
-    desc: 'Google Maps multi-villes, vrais magasins.',
+    desc: 'Google Maps multi-villes, vrais magasins. Necessite un navigateur local — non disponible sur Vercel.',
+    localOnly: true,
     type: 'reviews',
     defaultTarget: 'scraping',
     massiveLabel: 'Recherche massive',
@@ -415,7 +417,12 @@ function ScraperCard({ scraper, onStart, onFinish, events, activeRun, connected 
         {status !== 'idle' && <StatusBadge status={statusMap[status]} />}
       </div>
 
-      <div className="scraper-card-desc">{scraper.desc}</div>
+      {scraper.localOnly && (
+        <div style={{ marginBottom: 8, padding: '5px 10px', borderRadius: 8, background: 'var(--neutral-light)', border: '1px solid var(--neutral)', fontSize: 12, color: 'var(--neutral)', fontWeight: 500 }}>
+          Navigateur local requis — ne fonctionne pas sur Vercel
+        </div>
+      )}
+      <div className="scraper-card-desc">{scraper.desc.replace(' Necessite un navigateur local — non disponible sur Vercel.', '')}</div>
 
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 6 }}>

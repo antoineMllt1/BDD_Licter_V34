@@ -49,11 +49,24 @@ async function loadPuppeteer() {
   }
 }
 
+export function isServerlessEnv() {
+  return Boolean(
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.FUNCTION_NAME ||
+    (process.env.HOME && process.env.HOME.startsWith('/var/task'))
+  )
+}
+
 export async function getBrowser() {
   if (cachedBrowser?.connected) return cachedBrowser
   if (browserPromise) return browserPromise
 
   browserPromise = (async () => {
+    if (isServerlessEnv()) {
+      throw new Error('Le scraping Puppeteer (Google Reviews, Trustpilot) necessite un navigateur local et ne fonctionne pas en environnement serverless (Vercel). Utilisez les scrapers Apify (Twitter, TikTok, Facebook) ou lancez le scraping depuis votre machine locale.')
+    }
+
     const executablePath = findBrowserExecutable()
     if (!executablePath) {
       throw new Error('Chrome ou Edge introuvable sur cette machine. Installez un navigateur Chromium pour activer le scraping direct.')

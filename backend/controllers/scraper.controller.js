@@ -425,7 +425,8 @@ export async function scrapeTrustpilot(req, res) {
   } catch (err) {
     await logScraping('Trustpilot', 'error', 0, err.message)
     completeScrapeRun({ runId, source: 'Trustpilot', error: err.message })
-    res.status(500).json({ success: false, error: err.message })
+    const status = err.message.includes('serverless') || err.message.includes('navigateur') ? 503 : 500
+    res.status(status).json({ success: false, error: err.message })
   }
 }
 
@@ -511,7 +512,8 @@ export async function scrapeGoogleReviews(req, res) {
   } catch (err) {
     await logScraping('Google Reviews', 'error', 0, err.message)
     completeScrapeRun({ runId, source: 'Google Reviews', error: err.message })
-    res.status(500).json({ success: false, error: err.message })
+    const status = err.message.includes('serverless') || err.message.includes('navigateur') ? 503 : 500
+    res.status(status).json({ success: false, error: err.message })
   }
 }
 
